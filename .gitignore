@@ -1,0 +1,11 @@
+.idea/
+
+JavaFX/.idea
+JavaFX/.mvn
+JavaFX/target
+JavaFX/mvnw.cmd
+
+WebSocketServer/.idea
+WebSocketServer/.mvn
+WebSocketServer/target
+WebSocketServer/mvnw.cmd
