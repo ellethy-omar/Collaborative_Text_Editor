@@ -17,8 +17,12 @@ module example.com.example {
     requires spring.messaging;
     requires spring.websocket;
     requires spring.core;
+    requires java.net.http;
+    requires spring.web;
 
     opens example.com.example to javafx.fxml;
 
     exports example.com.example;
+    exports example.com.example.Controllers;
+    opens example.com.example.Controllers to javafx.fxml;
 }

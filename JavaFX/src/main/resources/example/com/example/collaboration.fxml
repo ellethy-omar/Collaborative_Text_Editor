@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.geometry.Insets?>
+<BorderPane xmlns="http://javafx.com/javafx/22"
+            xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="example.com.example.Controllers.CollaborationController">
+
+   <top>
+      <ToolBar>
+         <MenuButton text="File">
+            <items>
+               <MenuItem text="New Doc" onAction="#handleNewDocument"/>
+               <MenuItem text="Open…" onAction="#handleOpenDocument"/>
+               <MenuItem text="Save" onAction="#handleSaveDocument"/>
+               <SeparatorMenuItem/>
+               <MenuItem text="Exit" onAction="#handleExit"/>
+            </items>
+         </MenuButton>
+         <Separator orientation="VERTICAL"/>
+         <Label text="Session Code:"/>
+         <TextField fx:id="sessionCodeField" promptText="Enter code" prefWidth="120"/>
+         <Button text="Join" onAction="#handleJoinSession"/>
+         <Separator orientation="VERTICAL"/>
+         <Button text="⟲" onAction="#handleUndo"/>
+         <Button text="⟳" onAction="#handleRedo"/>
+      </ToolBar>
+   </top>
+
+   <left>
+      <VBox spacing="6">
+         <padding>
+            <Insets top="10" right="10" bottom="10" left="10"/>
+         </padding>
+         <Label text="Active Users" style="-fx-font-weight:bold"/>
+         <ListView fx:id="activeUsersList" prefWidth="140"/>
+      </VBox>
+   </left>
+
+   <center>
+      <TextArea fx:id="editorArea" wrapText="true"/>
+   </center>
+</BorderPane>
