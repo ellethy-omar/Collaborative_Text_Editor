@@ -5,18 +5,13 @@ import example.com.example.Controllers.handlers.DocumentHandler;
 import example.com.example.Controllers.handlers.SessionHandler;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
-import javafx.scene.Scene;
 import javafx.scene.control.*;
-import javafx.scene.input.KeyCode;
-import javafx.scene.input.KeyCodeCombination;
-import javafx.scene.input.KeyCombination;
 import javafx.scene.layout.Pane;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
-import java.util.function.BiConsumer;
 
 public class CollaborationController {
     @FXML private TextField sessionCodeField;
@@ -77,8 +72,6 @@ public class CollaborationController {
                 username,
                 cursorHandler::updateCursor    // new callback
         );
-        sessionHandler.connectAndSubscribe();
-
         sessionHandler.connectAndSubscribe();
 
         // Text edit listeners

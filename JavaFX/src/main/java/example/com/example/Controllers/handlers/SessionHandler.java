@@ -3,7 +3,7 @@ package example.com.example.Controllers.handlers;
 import javafx.application.Platform;
 import javafx.scene.control.ListView;
 import javafx.scene.control.TextArea;
-import javafx.scene.layout.Pane;
+
 import org.springframework.messaging.converter.MappingJackson2MessageConverter;
 import org.springframework.messaging.simp.stomp.*;
 import org.springframework.web.socket.WebSocketHttpHeaders;
@@ -14,9 +14,13 @@ import org.springframework.web.socket.sockjs.client.Transport;
 import org.springframework.web.socket.sockjs.client.WebSocketTransport;
 
 import java.lang.reflect.Type;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 
 public class SessionHandler {
@@ -56,19 +60,21 @@ public class SessionHandler {
                 subscribeUsers(session);
                 sendJoin(session);
                 // after subscribeUsers(session);
-                session.subscribe(
-                        "/topic/session/" + sessionId + "/cursors",
-                        new StompFrameHandler() {
-                            @Override public Type getPayloadType(StompHeaders h) { return Map.class; }
-                            @SuppressWarnings("unchecked")
-                            @Override public void handleFrame(StompHeaders h, Object p) {
-                                Map<String,Object> m = (Map<String,Object>) p;
-                                String user = (String) m.get("username");
-                                Integer pos = (Integer) m.get("cursor");
-                                Platform.runLater(() -> onRemoteCursor.accept(user, pos));
-                            }
-                        }
-                );
+                ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+                scheduler.scheduleAtFixedRate(() -> {
+                    if (editorArea == null || !editorArea.isFocused()) return;
+
+                    int caret = editorArea.getCaretPosition();
+
+                    Map<String, String> payload = new HashMap<>();
+                    payload.put("username", username);
+                    payload.put("caret", String.valueOf(caret));
+                    payload.put("sessionId", sessionId);
+
+                    session.send("/app/session/" + sessionId + "/cursor", payload);
+                }, 0, 100, TimeUnit.MILLISECONDS);
+
+                subscribeCursor(session);
             }
         });
     }
@@ -107,6 +113,25 @@ public class SessionHandler {
             }
         });
     }
+
+    private void subscribeCursor(StompSession session) {
+        session.subscribe("/topic/session/" + sessionId + "/cursor", new StompFrameHandler() {
+            @Override public Type getPayloadType(StompHeaders h) { return Map.class; }
+
+            @SuppressWarnings("unchecked")
+            @Override public void handleFrame(StompHeaders h, Object p) {
+                Map<String, String> m = (Map<String, String>) p;
+                String sender = m.get("username");
+                if (username.equals(sender)) return; // ignore own cursor update
+
+                int caret = Integer.parseInt(m.get("caret"));
+
+                // Call the callback on the JavaFX thread
+                Platform.runLater(() -> onRemoteCursor.accept(sender, caret));
+            }
+        });
+    }
+
 
     private void sendJoin(StompSession session) {
         session.send("/app/join/" + sessionId, Map.of("username", username));
