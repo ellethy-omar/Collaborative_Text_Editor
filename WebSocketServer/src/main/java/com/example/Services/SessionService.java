@@ -1,4 +1,4 @@
-package com.example.services;
+package com.example.Services;
 
 import com.example.CRDT.Session;
 import org.springframework.stereotype.Service;
@@ -46,7 +46,8 @@ public class SessionService {
 
     public boolean removeUser(String sessionId, String username) {
         Session session = sessions.get(sessionId);
-        if (session == null) return false;
+        if (session == null)
+            return false;
         return session.removeUser(username);
     }
 
