@@ -71,7 +71,7 @@ public class SessionHandler {
                     payload.put("caret", String.valueOf(caret));
                     payload.put("sessionId", sessionId);
 
-                    session.send("/app/session/" + sessionId + "/cursor", payload);
+                    sendCursorUpdate(caret);
                 }, 0, 100, TimeUnit.MILLISECONDS);
 
                 subscribeCursor(session);

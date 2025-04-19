@@ -54,7 +54,6 @@ public class CollaborationController {
     }
     */
 
-
     public void initSession(String sessionId, String initialText, String inputUserName) {
         this.sessionId = sessionId;
         editorArea.setText(initialText);
@@ -94,6 +93,13 @@ public class CollaborationController {
             showAlert("Please enter a session code.");
             return;
         }
+
+        if (newCode.trim().equals(sessionId.trim())) {
+            showAlert("You are already in this session!");
+            return;
+        }
+
+        System.out.println(newCode + "    " + sessionId);
 
         try {
             // 1) Validate it exists

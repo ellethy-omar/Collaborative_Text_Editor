@@ -85,7 +85,6 @@ public class PrimaryController {
         }
     }
 
-
     @FXML
     private void handleBrowse() {
         FileChooser chooser = new FileChooser();

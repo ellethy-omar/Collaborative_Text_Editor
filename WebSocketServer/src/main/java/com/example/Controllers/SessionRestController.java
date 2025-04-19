@@ -18,7 +18,9 @@ public class SessionRestController {
     @PostMapping
     public ResponseEntity<Map<String, String>> create(@RequestBody(required = false) Map<String, String> body) {
         String initialText = body != null ? body.getOrDefault("text", "") : "";
+
         String id = sessions.createSession(initialText);
+
         return ResponseEntity.ok(Map.of("sessionId", id));
     }
 
