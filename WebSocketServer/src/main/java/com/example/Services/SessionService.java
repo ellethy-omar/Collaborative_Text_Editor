@@ -64,6 +64,7 @@ public class SessionService {
         Session session = sessions.get(sessionId);
         if (session != null) {
             session.setSessionText(newText);
+            System.out.println(newText);
         }
     }
 }

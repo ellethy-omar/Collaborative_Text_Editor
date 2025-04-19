@@ -22,6 +22,9 @@
          <TextField fx:id="sessionCodeField" promptText="Enter code" prefWidth="120"/>
          <Button text="Join" onAction="#handleJoinSession"/>
          <Separator orientation="VERTICAL"/>
+         <Label text="Current Session:" />
+         <Label fx:id="currentSessionLabel" style="-fx-font-weight:bold" />
+         <Separator orientation="VERTICAL"/>
          <Button text="⟲" onAction="#handleUndo"/>
          <Button text="⟳" onAction="#handleRedo"/>
       </ToolBar>
@@ -38,6 +41,9 @@
    </left>
 
    <center>
-      <TextArea fx:id="editorArea" wrapText="true"/>
+      <StackPane>
+         <TextArea fx:id="editorArea" wrapText="true" prefWidth="600" prefHeight="400"/>
+         <Pane fx:id="cursorOverlay" mouseTransparent="true" />
+      </StackPane>
    </center>
 </BorderPane>

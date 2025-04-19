@@ -29,14 +29,25 @@ public class PrimaryController {
     @FXML
     private void handleNewDoc() {
         try {
+            // 1) Create the session
             Map<String, String> resp = rest.postForObject(baseUrl, Map.of(), Map.class);
             String sessionId = resp.get("sessionId");
-            rest.postForLocation(baseUrl + "/" + sessionId + "/user", Map.of());
-            loadCollabView(sessionId, "");
+
+            // 2) Add a user *and get back* the assigned username
+            Map<String,String> userResp = rest.postForObject(
+                    baseUrl + "/" + sessionId + "/user",
+                    Map.of(),
+                    Map.class
+            );
+            String assignedUser = userResp.get("username");
+
+            // 3) Hand off sessionId + assignedUser
+            loadCollabView(sessionId, "", assignedUser);
         } catch (Exception e) {
             showAlert("Failed to create a new session. Please try again.");
         }
     }
+
 
     @FXML
     private void handleJoin() {
@@ -51,12 +62,29 @@ public class PrimaryController {
                 showAlert("Session does not exist.");
                 return;
             }
-            rest.postForLocation(baseUrl + "/" + code + "/user", null);
-            loadCollabView(code, "");
+
+            @SuppressWarnings("unchecked")
+            Map<String,Object> sessionData = rest.getForObject(
+                    baseUrl + "/" + code,
+                    Map.class
+            );
+            String initialText = (String)sessionData.get("text");
+
+            @SuppressWarnings("unchecked")
+            Map<String,String> userResp = rest.postForObject(
+                    baseUrl + "/" + code + "/user",
+                    Map.of(),
+                    Map.class
+            );
+            String assignedUser = userResp.get("username");
+
+            loadCollabView(code, initialText, assignedUser);
+
         } catch (Exception e) {
             showAlert("Unable to join session. Please try again.");
         }
     }
+
 
     @FXML
     private void handleBrowse() {
@@ -78,23 +106,29 @@ public class PrimaryController {
             return;
         }
         try {
-            Map<String, String> resp = rest.postForObject(baseUrl, Map.of(), Map.class);
+            Map<String,String> resp = rest.postForObject(baseUrl, Map.of(), Map.class);
             String sessionId = resp.get("sessionId");
-            rest.postForLocation(baseUrl + "/" + sessionId + "/user", Map.of());
-            loadCollabView(sessionId, sb.toString());
+
+            Map<String,String> userResp = rest.postForObject(
+                    baseUrl + "/" + sessionId + "/user",
+                    Map.of(),
+                    Map.class
+            );
+            String assignedUser = userResp.get("username");
+            loadCollabView(sessionId, sb.toString(), assignedUser);
         } catch (Exception e) {
             showAlert("Unable to import and start session.");
         }
     }
 
-    private void loadCollabView(String sessionId, String initialText) {
+    private void loadCollabView(String sessionId, String initialText, String username) {
         try {
             FXMLLoader loader = new FXMLLoader(
                     App.class.getResource("collaboration.fxml")
             );
             Parent root = loader.load();
             CollaborationController ctrl = loader.getController();
-            ctrl.initSession(sessionId, initialText);
+            ctrl.initSession(sessionId, initialText, username);
             getStage().setScene(new Scene(root, 800, 600));
         } catch (IOException e) {
             showAlert("Could not open collaboration view");

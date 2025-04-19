@@ -19,10 +19,9 @@ public class WebSocketController {
 
     @MessageMapping("/join/{sessionId}")
     public void join(@DestinationVariable String sessionId,
-                     @Payload Map<String, String> payload) {
+                     @Payload Map<String,String> payload) {
         if (!sessions.exists(sessionId)) return;
-        String username = payload.get("username");
-        sessions.addUser(sessionId, username);
+
         tpl.convertAndSend(
                 "/topic/session/" + sessionId + "/users",
                 sessions.getUsers(sessionId)
@@ -33,11 +32,22 @@ public class WebSocketController {
     public void edit(@DestinationVariable String sessionId,
                      @Payload Map<String, String> payload) {
         if (!sessions.exists(sessionId)) return;
+        String user = payload.get("username");
         String text = payload.get("text");
         sessions.updateSessionText(sessionId, text);
+        // broadcast both username and text
+        tpl.convertAndSend("/topic/session/" + sessionId + "/edit",
+                Map.of("username", user, "text", text));
+    }
+
+    @MessageMapping("/cursor/{sessionId}")
+    public void cursor(@DestinationVariable String sessionId,
+                       @Payload Map<String,Object> payload) {
+        if (!sessions.exists(sessionId)) return;
+        // simply rebroadcast whatever { username, cursor } we get
         tpl.convertAndSend(
-                "/topic/session/" + sessionId + "/edit",
-                Map.of("text", text)
+                "/topic/session/" + sessionId + "/cursors",
+                payload
         );
     }
 }
