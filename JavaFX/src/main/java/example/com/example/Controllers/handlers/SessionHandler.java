@@ -238,14 +238,14 @@ public class SessionHandler {
             @Override public Type getPayloadType(StompHeaders h) { return Map.class; }
             @SuppressWarnings("unchecked")
             @Override public void handleFrame(StompHeaders h, Object p) {
-                Map<String, String> m = (Map<String, String>) p;
-                String sender = m.get("username");
-                System.out.println("current username: " + username + " sender username: " + sender);
-                
-                int caret = Integer.parseInt(m.get("caret"));
-                System.out.println("Heard cursor updates");
-                System.out.println(m);
-                cursorHandler.updateCursor(sender, caret);
+                Platform.runLater(() -> {  // Add Platform.runLater to update UI on FX thread
+                    Map<String, String> m = (Map<String, String>) p;
+                    String sender = m.get("username");
+                    if (username.equals(sender)) return;
+
+                    int caret = Integer.parseInt(m.get("caret"));
+                    cursorHandler.updateCursor(sender, caret);
+                });
             }
         });
     }
@@ -257,7 +257,7 @@ public class SessionHandler {
 
     public void sendCursorUpdate(int pos) {
         stompSession.send("/app/cursor/" + sessionId,
-            Map.of("username", username, "cursor", pos));
+                Map.of("username", username, "caret", String.valueOf(pos)));
     }
 
     public void sendArrayOfOperations() {
