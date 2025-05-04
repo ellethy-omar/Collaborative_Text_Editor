@@ -14,12 +14,15 @@ import java.util.Deque;
 import java.util.Map;
 
 public class CollaborationController {
+    @FXML private Label editorCodeLabel;
+    @FXML private Label viewerCodeLabel;
     @FXML private TextField sessionCodeField;
     @FXML private TextArea editorArea;
     @FXML private ListView<String> activeUsersList;
     @FXML private Label currentSessionLabel;
     @FXML private Pane cursorOverlay;
     private CursorHandler cursorHandler;
+    
 
     private final RestTemplate rest = new RestTemplate();
     private final String       baseUrl = "http://localhost:8080/api/sessions";
@@ -34,6 +37,8 @@ public class CollaborationController {
 
     private String username;
     private String sessionId;
+    private String viewerCode;
+    private String editorCode;
 
     /** JavaFX initialize: set up keyboard shortcuts. */
     /** Until I figure out why this undo removes the entire thing no one ask me
@@ -54,90 +59,37 @@ public class CollaborationController {
     }
     */
 
-    public void initSession(String sessionId, String initialText, String inputUserName) {
-        this.sessionId = sessionId;
+    public void initSession(String editorCode,
+                            String viewerCode,
+                            String initialText,
+                            String username,
+                            boolean isEditor) {
+        this.sessionId = editorCode;
+        this.viewerCode = viewerCode;
+        this.username = username;
+
         editorArea.setText(initialText);
+        editorArea.setEditable(isEditor);
+        currentSessionLabel.setText(isEditor ? "Editing Session" : "Viewing Session");
 
-        currentSessionLabel.setText(sessionId);
-
-        this.username = inputUserName;
+        editorCodeLabel.setVisible(isEditor);
+        editorCodeLabel.setText("Editor Code: " + editorCode);
+        viewerCodeLabel.setVisible(true);
+        viewerCodeLabel.setText("Viewer Code: " + viewerCode);
 
         documentHandler = new DocumentHandler(editorArea);
         cursorHandler = new CursorHandler(editorArea, cursorOverlay);
         sessionHandler = new SessionHandler(
-                editorArea,
-                activeUsersList,
-                sessionId,
-                username,
-                cursorHandler::updateCursor    // new callback
+                editorArea, activeUsersList,
+                sessionId, username,
+                cursorHandler::updateCursor
         );
         sessionHandler.connectAndSubscribe();
 
-        // Text edit listeners
-        editorArea.textProperty().addListener((obs, oldText, newText) -> {
-            if (!isUndoOrRedo) {
-                if (undoStack.size() >= 3) {
-                    undoStack.removeLast();
-                }
-                undoStack.push(oldText);
-                redoStack.clear();
-            }
-            sessionHandler.sendTextUpdate(newText);
-        });
-    }
-
-    @FXML
-    private void handleJoinSession() {
-        String newCode = sessionCodeField.getText().trim();
-        if (newCode.isEmpty()) {
-            showAlert("Please enter a session code.");
-            return;
-        }
-
-        if (newCode.trim().equals(sessionId.trim())) {
-            showAlert("You are already in this session!");
-            return;
-        }
-
-        System.out.println(newCode + "    " + sessionId);
-
-        try {
-            // 1) Validate it exists
-            Boolean exists = rest.getForObject(baseUrl + "/" + newCode + "/exists", Boolean.class);
-            if (!Boolean.TRUE.equals(exists)) {
-                showAlert("Session does not exist.");
-                return;
-            }
-
-            // 2) Fetch current session state (text + users)
-            @SuppressWarnings("unchecked")
-            Map<String,Object> sessionData = rest.getForObject(baseUrl + "/" + newCode, Map.class);
-            String initialText = (String) sessionData.get("text");
-
-            // 3) Claim your user‑slot
-            @SuppressWarnings("unchecked")
-            Map<String,String> userResp = rest.postForObject(
-                    baseUrl + "/" + newCode + "/user",
-                    Map.of(),
-                    Map.class
-            );
-            String assignedUser = userResp.get("username");
-
-            // 4) Switch your handler’s subscriptions
-            this.username = assignedUser;
-            sessionHandler.changeSession(newCode);
-
-            // 5) Reset the editor state
-            this.sessionId = newCode;
-            currentSessionLabel.setText(newCode);
-
-            editorArea.setText(initialText);
-            undoStack.clear();
-            redoStack.clear();
-
-        } catch (Exception e) {
-            showAlert("Unable to join session. Please try again.");
-            e.printStackTrace();
+        if (isEditor) {
+            editorArea.textProperty().addListener((o, oldT, newT) -> {
+                sessionHandler.sendTextUpdate(newT);
+            });
         }
     }
 
