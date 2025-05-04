@@ -8,14 +8,19 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import com.sun.jdi.PrimitiveValue;
 import example.com.example.Controllers.CRDT.OperationEntry;
+import example.com.example.Controllers.CRDT.TreeCrdt;
+import javafx.beans.value.ChangeListener;
 import javafx.scene.layout.Pane;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.converter.MappingJackson2MessageConverter;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
-import org.springframework.util.SocketUtils;
+import java.util.Timer;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
@@ -37,6 +42,8 @@ public class SessionHandler {
     private StompSession stompSession;
     private final List<OperationEntry> operationLog = new ArrayList<>();
     private final List<OperationEntry> operationsToBeSent = new ArrayList<>();
+    private ChangeListener<String> textChangeListener;
+    private TreeCrdt crdt = new TreeCrdt();
 
     public SessionHandler(TextArea editorArea,
                           ListView<String> usersList,
@@ -49,10 +56,10 @@ public class SessionHandler {
         this.username = username;
         String[] previousText = {editorArea.getText()};
         this.cursorHandler = new CursorHandler(editorArea, cursorOverlay);
-        
-        editorArea.textProperty().addListener((observable, oldValue, newValue) -> {
+
+        textChangeListener = (observable, oldValue, newValue) -> {
             long timestamp = Instant.now().toEpochMilli();
-                
+
             if (newValue.length() > oldValue.length()) {
                 int length = newValue.length() - oldValue.length();
                 int start = findDifferencePosition(oldValue, newValue);
@@ -72,8 +79,9 @@ public class SessionHandler {
                     handleTextOperation("delete", c, start + i, timestamp);
                 }
             }
-            previousText[0] = newValue;
-        });
+        };
+
+        editorArea.textProperty().addListener(textChangeListener);
 
         editorArea.caretPositionProperty().addListener((obs, oldPos, newPos) -> {
             if (stompSession != null && stompSession.isConnected() && editorArea.isFocused()) {
@@ -113,16 +121,6 @@ public class SessionHandler {
         }
 
         operationsToBeSent.add(entry);
-        
-//        System.out.println("Operation Log (" + operation + " at " + position + "):");
-//        for (int i = 0; i < operationLog.size(); i++) {
-//            System.out.println("[" + i + "]: " + operationLog.get(i));
-//        }
-//
-//        System.out.println("OperationsToBeSent (" + operationsToBeSent.size() + " entries):");
-//        for (int i = 0; i < operationsToBeSent.size(); i++) {
-//            System.out.println("[" + i + "]: " + operationsToBeSent.get(i));
-//        }
     }
 
     private int findDifferencePosition(String oldText, String newText) {
@@ -196,19 +194,67 @@ public class SessionHandler {
                         String user               = (String) m.get("username");
                         @SuppressWarnings("unchecked")
                         List<Map<String,Object>> ops = (List<Map<String,Object>>) m.get("operations");
+                        if (ops == null || ops.isEmpty()) {
+                            return;
+                        }
+
                         Number tsNum              = (Number) m.get("timestamp");
                         String status             = (String) m.get("status");
                         Instant ts                = Instant.ofEpochMilli(tsNum.longValue());
 
-//                        System.out.printf(
-//                                "← ACK of %d ops from %s @ %s [%s]: %s%n",
-//                                ops.size(), user, ts, status, ops
-//                        );
+                        if (!username.equals(user)) {
+                            List<OperationEntry> operationEntries = convertToOperationEntries(ops);
 
-                        // SOME CRDT LOGIC GOES IN HERE
+                            Platform.runLater(() -> {
+                                // Store caret position before update
+                                int caretPosition = editorArea.getCaretPosition();
+
+                                // Disable text listener temporarily
+                                editorArea.textProperty().removeListener(textChangeListener);
+
+                                // Apply operations to the CRDT
+                                crdt.integrateAll(operationEntries);
+
+                                // Update editor with new text
+                                String newText = crdt.getSequenceText();
+                                System.out.println(newText);
+                                editorArea.setText(newText);
+
+                                // Restore caret position if possible
+                                if (caretPosition <= newText.length()) {
+                                    editorArea.positionCaret(caretPosition);
+                                }
+
+                                // Re-enable text listener
+                                editorArea.textProperty().addListener(textChangeListener);
+                            });
+                        }
                     }
                 }
         );
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<OperationEntry> convertToOperationEntries(List<Map<String, Object>> maps) {
+        List<OperationEntry> entries = new ArrayList<>();
+
+        for (Map<String, Object> map : maps) {
+            // Extract operation properties
+            String operation = (String) map.get("operation");
+            String charStr = (String) map.get("character");
+            char character = (charStr != null && !charStr.isEmpty()) ? charStr.charAt(0) : '\0';
+
+            // Extract and convert IDs
+            Object[] userID = extractIdArray(map.get("userID"));
+            Object[] parentID = extractIdArray(map.get("parentID"));
+
+            // Create and configure the operation entry
+            OperationEntry entry = new OperationEntry(operation, character, userID);
+            entry.setParentID(parentID);
+            entries.add(entry);
+        }
+
+        return entries;
     }
 
     private void subscribeUsers() {
@@ -256,11 +302,25 @@ public class SessionHandler {
     }
 
     public void sendCursorUpdate(int pos) {
-        stompSession.send("/app/cursor/" + sessionId,
-                Map.of("username", username, "caret", String.valueOf(pos)));
+        // Check if session is active before sending
+        if (stompSession != null && stompSession.isConnected()) {
+            try {
+                // Use synchronized block to prevent concurrent send operations
+                synchronized (stompSession) {
+                    stompSession.send("/app/cursor/" + sessionId,
+                            Map.of("username", username, "caret", String.valueOf(pos)));
+                }
+            } catch (Exception e) {
+                // Handle exceptions without crashing the application
+                System.err.println("Error sending cursor update: " + e.getMessage());
+            }
+        }
     }
 
     public void sendArrayOfOperations() {
+        if (operationsToBeSent.isEmpty()) {
+            return;
+        }
         long ts = Instant.now().toEpochMilli();
 
         List<Map<String,Object>> opsPayload = operationsToBeSent.stream()
@@ -279,8 +339,112 @@ public class SessionHandler {
 
     public void fetchAndApplyStorage() {
         RestTemplate rest = new RestTemplate();
-        Map<String, Object> resp = rest.getForObject("http://localhost:8080/api/sessions/" + sessionId + "/getStorage", Map.class);
-        var storage = resp.get("storage");
-        System.out.println(storage);
+
+        // Use a proper response type to handle the nested structure
+        ResponseEntity<Map> response = rest.getForEntity(
+                "http://localhost:8080/api/sessions/" + sessionId + "/getStorage",
+                Map.class
+        );
+
+        if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+            // Extract the storage value
+            Object storageObj = response.getBody().get("storage");
+
+            if (storageObj != null) {
+                try {
+                    // Temporarily disable text listener to prevent operation creation
+                    editorArea.textProperty().removeListener(textChangeListener);
+
+                    // Convert the storage object to a list of operation entries
+                    List<OperationEntry> operations = convertStorageToOperationEntries(storageObj);
+
+                    // Now you can integrate the operations
+                    crdt.integrateAll(operations);
+
+                    // Update the editor text
+                    Platform.runLater(() -> {
+                        editorArea.setText(crdt.getSequenceText());
+                        System.out.println("Updated text: " + editorArea.getText());
+
+                        // Re-enable text listener
+                        editorArea.textProperty().addListener(textChangeListener);
+                    });
+                } catch (Exception e) {
+                    System.err.println("Error processing storage data: " + e.getMessage());
+                    e.printStackTrace();
+
+                    // Make sure we re-enable the listener even if there's an error
+                    editorArea.textProperty().addListener(textChangeListener);
+                }
+            } else {
+                System.err.println("Storage data is null");
+            }
+        } else {
+            System.err.println("Failed to fetch storage data: " + response.getStatusCode());
+        }
+    }
+
+    /**
+     * Converts the storage object from the API response to a list of OperationEntry objects.
+     * The structure of storageObj is expected to be a Queue<Map<String, Object>>.
+     */
+    @SuppressWarnings("unchecked")
+    private List<OperationEntry> convertStorageToOperationEntries(Object storageObj) {
+        List<OperationEntry> operations = new ArrayList<>();
+
+        // The storage is expected to be a queue (which Jackson deserializes as a List)
+        if (storageObj instanceof List) {
+            List<Object> storageList = (List<Object>) storageObj;
+
+            for (Object item : storageList) {
+                if (item instanceof Map) {
+                    Map<String, Object> opMap = (Map<String, Object>) item;
+
+                    // Extract operation properties
+                    String operation = (String) opMap.get("operation");
+                    String charStr = (String) opMap.get("character");
+                    char character = (charStr != null && !charStr.isEmpty()) ? charStr.charAt(0) : '\0';
+
+                    // Handle userID (could be a List or an array)
+                    Object[] userID = extractIdArray(opMap.get("userID"));
+                    Object[] parentID = extractIdArray(opMap.get("parentID"));
+
+                    // Create and configure the operation entry
+                    OperationEntry entry = new OperationEntry(operation, character, userID);
+                    entry.setParentID(parentID);
+                    operations.add(entry);
+                }
+            }
+        }
+
+        return operations;
+    }
+
+    /**
+     * Extracts an Object[] from various possible representations of an ID.
+     */
+    @SuppressWarnings("unchecked")
+    private Object[] extractIdArray(Object idObj) {
+        if (idObj == null) {
+            return null;
+        }
+
+        if (idObj instanceof Object[]) {
+            return (Object[]) idObj;
+        } else if (idObj instanceof List) {
+            List<Object> list = (List<Object>) idObj;
+            return list.toArray(new Object[0]);
+        } else if (idObj instanceof Map) {
+            // Handle case where Jackson deserializes arrays as maps with numeric keys
+            Map<String, Object> map = (Map<String, Object>) idObj;
+            Object[] result = new Object[map.size()];
+            for (int i = 0; i < map.size(); i++) {
+                result[i] = map.get(String.valueOf(i));
+            }
+            return result;
+        }
+
+        // If all else fails, wrap the object in an array
+        return new Object[] { idObj };
     }
 }

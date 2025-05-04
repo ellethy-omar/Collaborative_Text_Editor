@@ -106,6 +106,10 @@ public class WebSocketController {
         String user = (String) payload.get("username");
         @SuppressWarnings("unchecked")
         List<Map<String,Object>> ops = (List<Map<String,Object>>) payload.get("operations");
+        if (ops == null || ops.isEmpty()) {
+            // either drop it, or only ACK back to the sender
+            return;
+        }
         long ts = ((Number) payload.get("timestamp")).longValue();
         Instant instantTs = Instant.ofEpochMilli(ts);
 
