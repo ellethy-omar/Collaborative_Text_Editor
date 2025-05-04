@@ -38,8 +38,28 @@ public class SessionHandler {
     private static final OperationEntry[] STATIC_OPS = {
             new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
             new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
             new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()})
-            // … however many entries you like …
     };
     public SessionHandler(TextArea editorArea,
                          ListView<String> usersList,
@@ -213,12 +233,12 @@ public class SessionHandler {
                 Map<String,Object> map = (Map<String,Object>) payload;
                 String user          = (String) map.get("username");
                 @SuppressWarnings("unchecked")
-                List<String> chars   = (List<String>) map.get("characters");
+                List<Map<String,Object>> ops = (List<Map<String,Object>>) map.get("operations");
                 Number tsNum         = (Number) map.get("timestamp");
                 Instant ts           = Instant.ofEpochMilli(tsNum.longValue());
 
                 // Log locally
-                System.out.printf("← random %s from %s @ %s%n", chars, user, ts);
+                System.out.printf("← random %s from %s @ %s%n", ops, user, ts);
 
                 // Optionally update UI
 //                Platform.runLater(() -> {
