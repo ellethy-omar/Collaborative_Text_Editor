@@ -1,9 +1,6 @@
 package example.com.example.Controllers.handlers;
 
 import java.lang.reflect.Type;
-import java.net.URI;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.Executors;
@@ -17,6 +14,7 @@ import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
+import org.springframework.util.SocketUtils;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
@@ -33,7 +31,7 @@ public class SessionHandler {
     private final TextArea editorArea;
     private final ListView<String> usersList;
     private final CursorHandler cursorHandler;
-    private String sessionId;
+    private final String sessionId;
     private final String username;
     private StompSession stompSession;
     private final List<OperationEntry> operationLog = new ArrayList<>();
@@ -240,10 +238,9 @@ public class SessionHandler {
             @Override public Type getPayloadType(StompHeaders h) { return Map.class; }
             @SuppressWarnings("unchecked")
             @Override public void handleFrame(StompHeaders h, Object p) {
-                System.out.println(p);
                 Map<String, String> m = (Map<String, String>) p;
                 String sender = m.get("username");
-                if (username.equals(sender)) return;
+                System.out.println("current username: " + username + " sender username: " + sender);
                 
                 int caret = Integer.parseInt(m.get("caret"));
                 System.out.println("Heard cursor updates");
@@ -333,6 +330,4 @@ class OperationEntry {
             parentID != null ? Arrays.toString(parentID) : "null"
         );
     }
-
-
 }

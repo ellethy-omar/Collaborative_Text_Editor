@@ -89,6 +89,7 @@ public class WebSocketController {
     @MessageMapping("/cursor/{token}")
     public void cursor(@DestinationVariable String token, @Payload Map<String,Object> p) {
         if (!sessions.isEditorToken(token)) return;
+
         String editor = sessions.getEditorFor(token);
         sessions.getAllTokensForEditor(editor)
                 .forEach(t -> tpl.convertAndSend("/topic/session/"+t+"/cursor", p));
