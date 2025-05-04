@@ -1,23 +1,23 @@
 package example.com.example.Controllers.handlers;
 
 import java.lang.reflect.Type;
+import java.net.URI;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiConsumer;
+import java.util.stream.Collectors;
 
+import javafx.scene.layout.Pane;
 import org.springframework.messaging.converter.MappingJackson2MessageConverter;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
@@ -30,27 +30,26 @@ import javafx.scene.control.ListView;
 import javafx.scene.control.TextArea;
 
 public class SessionHandler {
-    private final String wsUrl = "http://localhost:8080/ws";
     private final TextArea editorArea;
     private final ListView<String> usersList;
+    private final CursorHandler cursorHandler;
     private String sessionId;
     private final String username;
     private StompSession stompSession;
-    private final BiConsumer<String, Integer> onRemoteCursor;
     private final List<OperationEntry> operationLog = new ArrayList<>();
     private final List<OperationEntry> operationsToBeSent = new ArrayList<>();
 
     public SessionHandler(TextArea editorArea,
-                         ListView<String> usersList,
-                         String sessionId,
-                         String username,
-                         BiConsumer<String, Integer> onRemoteCursor) {
+                          ListView<String> usersList,
+                          Pane cursorOverlay,
+                          String sessionId,
+                          String username) {
         this.editorArea = editorArea;
         this.usersList = usersList;
         this.sessionId = sessionId;
         this.username = username;
-        this.onRemoteCursor = onRemoteCursor;
         String[] previousText = {editorArea.getText()};
+        this.cursorHandler = new CursorHandler(editorArea, cursorOverlay);
         
         editorArea.textProperty().addListener((observable, oldValue, newValue) -> {
             long timestamp = Instant.now().toEpochMilli();
@@ -76,6 +75,12 @@ public class SessionHandler {
             }
             previousText[0] = newValue;
         });
+
+        editorArea.caretPositionProperty().addListener((obs, oldPos, newPos) -> {
+            if (stompSession != null && stompSession.isConnected() && editorArea.isFocused()) {
+                sendCursorUpdate(newPos.intValue());
+            }
+        });
     }
 
     private void handleTextOperation(String operation, char character, int position, long timestamp) {
@@ -85,7 +90,7 @@ public class SessionHandler {
             // position,
             new Object[]{username, timestamp}
         );
-        
+
         if ("insert".equals(operation)) {
             // If inserting at position 0, parentID should always be null
             if (position == 0) {
@@ -94,32 +99,31 @@ public class SessionHandler {
                 entry.setParentID(operationLog.get(position - 1).getUserID());
             }
             operationLog.add(position, entry);
+            // operationsToBeSent.add(entry);
+
         } else if ("delete".equals(operation)) {
             if (position < operationLog.size()) {
-                operationLog.remove(position);
-                // Update parentIDs after deletion
-                for (int i = position; i < operationLog.size(); i++) {
-                    OperationEntry current = operationLog.get(i);
-                    current.setParentID(i > 0 ? operationLog.get(i-1).getUserID() : null);
-                }
+                OperationEntry original = operationLog.remove(position);
+                entry = new OperationEntry(
+                        "delete",  // Set operation directly to "delete"
+                        original.getCharacter(),
+                        original.getUserID()
+                );
+                entry.setParentID(original.getParentID());
             }
         }
 
         operationsToBeSent.add(entry);
         
-        System.out.println("Operation Log (" + operation + " at " + position + "):");
-        for (int i = 0; i < operationLog.size(); i++) {
-            System.out.println("[" + i + "]: " + operationLog.get(i));
-        }
-
-        System.out.println("OperationsToBeSent (" + operationsToBeSent.size() + " entries):");
-        for (int i = 0; i < operationsToBeSent.size(); i++) {
-            System.out.println("[" + i + "]: " + operationsToBeSent.get(i));
-        }
-
-        if (stompSession != null && stompSession.isConnected()) {
-            stompSession.send("/app/edit/" + sessionId, entry.toMap());
-        }
+//        System.out.println("Operation Log (" + operation + " at " + position + "):");
+//        for (int i = 0; i < operationLog.size(); i++) {
+//            System.out.println("[" + i + "]: " + operationLog.get(i));
+//        }
+//
+//        System.out.println("OperationsToBeSent (" + operationsToBeSent.size() + " entries):");
+//        for (int i = 0; i < operationsToBeSent.size(); i++) {
+//            System.out.println("[" + i + "]: " + operationsToBeSent.get(i));
+//        }
     }
 
     private int findDifferencePosition(String oldText, String newText) {
@@ -157,93 +161,130 @@ public class SessionHandler {
         SockJsClient sockJs = new SockJsClient(transports);
         WebSocketStompClient client = new WebSocketStompClient(sockJs);
         client.setMessageConverter(new MappingJackson2MessageConverter());
+        String wsUrl = "http://localhost:8080/ws";
         client.connect(wsUrl, new WebSocketHttpHeaders(), new StompSessionHandlerAdapter() {
             @Override
             public void afterConnected(StompSession session, StompHeaders headers) {
                 stompSession = session;
-                subscribeEdit(session);
-                subscribeUsers(session);
-                sendJoin(session);
+
+                subscribeUsers();
+                subscribeAckOperations();
+                sendJoin();
                 
                 ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
                 scheduler.scheduleAtFixedRate(() -> {
-                    if (editorArea == null || !editorArea.isFocused()) return;
-                    int caret = editorArea.getCaretPosition();
-                    sendCursorUpdate(caret);
-                }, 0, 100, TimeUnit.MILLISECONDS);
+                    if(!stompSession.isConnected())
+                        return;
+
+                    sendArrayOfOperations();
+
+                }, 0, 3100, TimeUnit.MILLISECONDS);
                 
-                subscribeCursor(session);
+                subscribeCursor();
             }
         });
     }
 
-    private void subscribeEdit(StompSession session) {
-        session.subscribe("/topic/session/" + sessionId + "/edit", new StompFrameHandler() {
-            @Override public Type getPayloadType(StompHeaders h) { return Map.class; }
-            @SuppressWarnings("unchecked")
-            @Override public void handleFrame(StompHeaders h, Object p) {
-                Map<String, String> m = (Map<String,String>)p;
-                String sender = m.get("username");
-                if (username.equals(sender)) return;
-                
-                String text = m.get("text");
-                int caretPos = editorArea.getCaretPosition();
-                Platform.runLater(() -> {
-                    editorArea.setText(text);
-                    editorArea.positionCaret(Math.min(caretPos, text.length()));
-                });
-            }
-        });
+    private void subscribeAckOperations() {
+        stompSession.subscribe(
+                "/topic/session/" + sessionId + "/operation/ack",
+                new StompFrameHandler() {
+                    @Override public Type getPayloadType(StompHeaders headers) {
+                        return Map.class;
+                    }
+                    @SuppressWarnings("unchecked")
+                    @Override public void handleFrame(StompHeaders headers, Object payload) {
+                        Map<String,Object> m       = (Map<String,Object>) payload;
+                        String user               = (String) m.get("username");
+                        @SuppressWarnings("unchecked")
+                        List<Map<String,Object>> ops = (List<Map<String,Object>>) m.get("operations");
+                        Number tsNum              = (Number) m.get("timestamp");
+                        String status             = (String) m.get("status");
+                        Instant ts                = Instant.ofEpochMilli(tsNum.longValue());
+
+//                        System.out.printf(
+//                                "← ACK of %d ops from %s @ %s [%s]: %s%n",
+//                                ops.size(), user, ts, status, ops
+//                        );
+
+                        // SOME CRDT LOGIC GOES IN HERE
+                    }
+                }
+        );
     }
 
-    private void subscribeUsers(StompSession session) {
-        session.subscribe("/topic/session/" + sessionId + "/users", new StompFrameHandler() {
+    private void subscribeUsers() {
+        stompSession.subscribe("/topic/session/" + sessionId + "/users", new StompFrameHandler() {
             @Override public Type getPayloadType(StompHeaders h) { return Set.class; }
             @SuppressWarnings("unchecked")
             @Override public void handleFrame(StompHeaders h, Object p) {
                 Set<String> users = (Set<String>)p;
                 Platform.runLater(() -> usersList.getItems().setAll(users));
+
+                Set<String> currentUsers = new HashSet<>(users);
+                Set<String> previousUsers = new HashSet<>(usersList.getItems());
+                previousUsers.removeAll(currentUsers);
+
+                // Remove cursors for users who left
+                for (String leftUser : previousUsers) {
+                    if (!leftUser.equals(username)) {
+                        cursorHandler.removeCursor(leftUser);
+                    }
+                }
             }
         });
     }
 
-    private void subscribeCursor(StompSession session) {
-        session.subscribe("/topic/session/" + sessionId + "/cursor", new StompFrameHandler() {
+    private void subscribeCursor() {
+        stompSession.subscribe("/topic/session/" + sessionId + "/cursor", new StompFrameHandler() {
             @Override public Type getPayloadType(StompHeaders h) { return Map.class; }
             @SuppressWarnings("unchecked")
             @Override public void handleFrame(StompHeaders h, Object p) {
+                System.out.println(p);
                 Map<String, String> m = (Map<String, String>) p;
                 String sender = m.get("username");
                 if (username.equals(sender)) return;
                 
                 int caret = Integer.parseInt(m.get("caret"));
-                Platform.runLater(() -> onRemoteCursor.accept(sender, caret));
+                System.out.println("Heard cursor updates");
+                System.out.println(m);
+                cursorHandler.updateCursor(sender, caret);
             }
         });
     }
 
-    private void sendJoin(StompSession session) {
-        session.send("/app/join/" + sessionId, Map.of("username", username));
-    }
-
-    public void sendTextUpdate(String text) {
-        if (stompSession != null && stompSession.isConnected()) {
-            stompSession.send("/app/edit/" + sessionId, 
-                Map.of("username", username, "text", text));
-        }
+    private void sendJoin() {
+        stompSession.send("/app/join/" + sessionId, Map.of("username", username));
+        fetchAndApplyStorage();
     }
 
     public void sendCursorUpdate(int pos) {
-        if (stompSession != null && stompSession.isConnected()) {
-            stompSession.send("/app/cursor/" + sessionId, 
-                Map.of("username", username, "cursor", pos));
-        }
+        stompSession.send("/app/cursor/" + sessionId,
+            Map.of("username", username, "cursor", pos));
     }
 
-    public void changeSession(String newSessionId) {
-        this.sessionId = newSessionId;
-        if (stompSession != null) stompSession.disconnect();
-        connectAndSubscribe();
+    public void sendArrayOfOperations() {
+        long ts = Instant.now().toEpochMilli();
+
+        List<Map<String,Object>> opsPayload = operationsToBeSent.stream()
+                .map(OperationEntry::toMap)
+                .collect(Collectors.toList());
+
+        Map<String,Object> payload = Map.of(
+                "username",   username,
+                "operations", opsPayload,
+                "timestamp",  ts
+        );
+        stompSession.send("/app/operation/" + sessionId, payload);
+
+        operationsToBeSent.clear();
+    }
+
+    public void fetchAndApplyStorage() {
+        RestTemplate rest = new RestTemplate();
+        Map<String, Object> resp = rest.getForObject("http://localhost:8080/api/sessions/" + sessionId + "/getStorage", Map.class);
+        var storage = resp.get("storage");
+        System.out.println(storage);
     }
 }
 
@@ -292,4 +333,6 @@ class OperationEntry {
             parentID != null ? Arrays.toString(parentID) : "null"
         );
     }
+
+
 }

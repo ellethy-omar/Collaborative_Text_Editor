@@ -9,10 +9,15 @@ import javafx.scene.control.*;
 import javafx.scene.layout.Pane;
 import org.springframework.web.client.RestTemplate;
 
+import javax.annotation.PreDestroy;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
 
+/*
+* Create route that sends a char every 100 ms, log in server and client
+*
+* */
 public class CollaborationController {
     @FXML private Label editorCodeLabel;
     @FXML private Label viewerCodeLabel;
@@ -80,17 +85,13 @@ public class CollaborationController {
         documentHandler = new DocumentHandler(editorArea);
         cursorHandler = new CursorHandler(editorArea, cursorOverlay);
         sessionHandler = new SessionHandler(
-                editorArea, activeUsersList,
-                sessionId, username,
-                cursorHandler::updateCursor
+                editorArea,
+                activeUsersList,
+                cursorOverlay,
+                sessionId,
+                username
         );
         sessionHandler.connectAndSubscribe();
-
-        if (isEditor) {
-            editorArea.textProperty().addListener((o, oldT, newT) -> {
-                sessionHandler.sendTextUpdate(newT);
-            });
-        }
     }
 
     @FXML
@@ -140,6 +141,22 @@ public class CollaborationController {
 
     @FXML
     private void handleExit() {
+        leaveSession();
         Platform.exit();
+    }
+
+    @PreDestroy
+    private void onControllerDestroy() {
+        leaveSession();
+    }
+
+    private void leaveSession() {
+        try {
+            String url = String.format("%s/%s/user/%s",
+                    baseUrl, sessionId, username);
+            rest.delete(url);
+        } catch (Exception ex) {
+            System.out.println("Could not notify server of leave: " + ex.getMessage());
+        }
     }
 }

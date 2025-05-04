@@ -43,7 +43,7 @@
    <center>
       <StackPane>
          <TextArea fx:id="editorArea" wrapText="true" prefWidth="600" prefHeight="400"/>
-         <Pane fx:id="cursorOverlay" mouseTransparent="true" />
+         <Pane fx:id="cursorOverlay"/>
       </StackPane>
    </center>
 </BorderPane>
