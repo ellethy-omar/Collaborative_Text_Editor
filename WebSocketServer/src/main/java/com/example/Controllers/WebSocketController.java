@@ -54,8 +54,8 @@ public class WebSocketController {
                 .forEach(t -> tpl.convertAndSend("/topic/session/"+t+"/cursors", p));
     }
 
-    @MessageMapping("/random/{token}")
-    public void randomChar(@DestinationVariable String token,
+    @MessageMapping("/operation/{token}")
+    public void operation(@DestinationVariable String token,
                            @Payload Map<String,Object> payload) {
         if (!sessions.exists(token)) {
             log.warn("Unknown token {}", token);
@@ -78,7 +78,7 @@ public class WebSocketController {
 
         // 2) Broadcast the operations list to all clients
         tpl.convertAndSend(
-                "/topic/session/" + token + "/random",
+                "/topic/session/" + token + "/operation",
                 Map.of(
                         "username",   user,
                         "operations", ops,

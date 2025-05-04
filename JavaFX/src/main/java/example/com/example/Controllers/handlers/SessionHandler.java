@@ -212,7 +212,7 @@ public class SessionHandler {
                                 "operations", opsPayload,
                                 "timestamp",  ts
                         );
-                        stompSession.send("/app/random/" + sessionId, payload);
+                        stompSession.send("/app/operation/" + sessionId, payload);
 
                         System.out.printf("→ SENT operations %s @ %d%n", opsPayload, ts);
                     }
@@ -227,7 +227,7 @@ public class SessionHandler {
     // multiple users
 
     private void subscribeOperations(StompSession session) {
-        session.subscribe("/topic/session/" + sessionId + "/random", new StompFrameHandler() {
+        session.subscribe("/topic/session/" + sessionId + "/operation", new StompFrameHandler() {
             @Override public Type getPayloadType(StompHeaders headers) {
                 return Map.class;
             }
