@@ -2,16 +2,12 @@ package example.com.example.Controllers.handlers;
 
 import java.lang.reflect.Type;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.stream.Collectors;
 
 import org.springframework.messaging.converter.MappingJackson2MessageConverter;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
@@ -39,7 +35,12 @@ public class SessionHandler {
     private final BiConsumer<String, Integer> onRemoteCursor;
     private final List<OperationEntry> operationLog = new ArrayList<>();
     private final List<OperationEntry> operationsToBeSent = new ArrayList<>();
-
+    private static final OperationEntry[] STATIC_OPS = {
+            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
+            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()})
+            // … however many entries you like …
+    };
     public SessionHandler(TextArea editorArea,
                          ListView<String> usersList,
                          String sessionId,
@@ -152,6 +153,8 @@ public class SessionHandler {
         return minLength;
     }
 
+    private final Random rnd = new Random();
+
     public void connectAndSubscribe() {
         List<Transport> transports = List.of(new WebSocketTransport(new StandardWebSocketClient()));
         SockJsClient sockJs = new SockJsClient(transports);
@@ -163,6 +166,8 @@ public class SessionHandler {
                 stompSession = session;
                 subscribeEdit(session);
                 subscribeUsers(session);
+                subscribeOperations(session);
+                subscribeAckOperations(session);
                 sendJoin(session);
                 
                 ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
@@ -171,11 +176,85 @@ public class SessionHandler {
                     int caret = editorArea.getCaretPosition();
                     sendCursorUpdate(caret);
                 }, 0, 100, TimeUnit.MILLISECONDS);
+
+                scheduler.scheduleAtFixedRate(() -> {
+                    if (stompSession != null && stompSession.isConnected()) {
+                        long ts = Instant.now().toEpochMilli();
+
+                        // 1) convert your static entries to a List of Maps
+                        List<Map<String,Object>> opsPayload = Arrays.stream(STATIC_OPS)
+                                .map(OperationEntry::toMap)
+                                .collect(Collectors.toList());
+
+                        // 2) build and send the message
+                        Map<String,Object> payload = Map.of(
+                                "username",   username,
+                                "operations", opsPayload,
+                                "timestamp",  ts
+                        );
+                        stompSession.send("/app/random/" + sessionId, payload);
+
+                        System.out.printf("→ SENT operations %s @ %d%n", opsPayload, ts);
+                    }
+                }, 0, 100, TimeUnit.MILLISECONDS);
                 
                 subscribeCursor(session);
             }
         });
     }
+
+    private void subscribeOperations(StompSession session) {
+        session.subscribe("/topic/session/" + sessionId + "/random", new StompFrameHandler() {
+            @Override public Type getPayloadType(StompHeaders headers) {
+                return Map.class;
+            }
+            @SuppressWarnings("unchecked")
+            @Override public void handleFrame(StompHeaders headers, Object payload) {
+                Map<String,Object> map = (Map<String,Object>) payload;
+                String user          = (String) map.get("username");
+                @SuppressWarnings("unchecked")
+                List<String> chars   = (List<String>) map.get("characters");
+                Number tsNum         = (Number) map.get("timestamp");
+                Instant ts           = Instant.ofEpochMilli(tsNum.longValue());
+
+                // Log locally
+                System.out.printf("← random %s from %s @ %s%n", chars, user, ts);
+
+                // Optionally update UI
+//                Platform.runLater(() -> {
+//                    editorArea.appendText("\n[Random] " + user + ": " + chars);
+//                });
+            }
+        });
+    }
+
+    // operation
+    private void subscribeAckOperations(StompSession session) {
+        session.subscribe(
+                "/topic/session/" + sessionId + "/operation/ack",
+                new StompFrameHandler() {
+                    @Override public Type getPayloadType(StompHeaders headers) {
+                        return Map.class;
+                    }
+                    @SuppressWarnings("unchecked")
+                    @Override public void handleFrame(StompHeaders headers, Object payload) {
+                        Map<String,Object> m       = (Map<String,Object>) payload;
+                        String user               = (String) m.get("username");
+                        @SuppressWarnings("unchecked")
+                        List<Map<String,Object>> ops = (List<Map<String,Object>>) m.get("operations");
+                        Number tsNum              = (Number) m.get("timestamp");
+                        String status             = (String) m.get("status");
+                        Instant ts                = Instant.ofEpochMilli(tsNum.longValue());
+
+                        System.out.printf(
+                                "← ACK of %d ops from %s @ %s [%s]: %s%n",
+                                ops.size(), user, ts, status, ops
+                        );
+                    }
+                }
+        );
+    }
+
 
     private void subscribeEdit(StompSession session) {
         session.subscribe("/topic/session/" + sessionId + "/edit", new StompFrameHandler() {

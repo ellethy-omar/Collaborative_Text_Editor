@@ -13,6 +13,10 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
 
+/*
+* Create route that sends a char every 100 ms, log in server and client
+*
+* */
 public class CollaborationController {
     @FXML private Label editorCodeLabel;
     @FXML private Label viewerCodeLabel;

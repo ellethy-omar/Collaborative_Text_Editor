@@ -19,6 +19,7 @@ module example.com.example {
     requires spring.core;
     requires java.net.http;
     requires spring.web;
+    requires spring.context;
 
     opens example.com.example to javafx.fxml;
 
