@@ -86,7 +86,7 @@ public class SessionHandler {
             // position,
             new Object[]{username, timestamp}
         );
-        
+
         if ("insert".equals(operation)) {
             // If inserting at position 0, parentID should always be null
             if (position == 0) {
@@ -95,22 +95,39 @@ public class SessionHandler {
                 entry.setParentID(operationLog.get(position - 1).getUserID());
             }
             operationLog.add(position, entry);
+            // operationsToBeSent.add(entry);
+
         } else if ("delete".equals(operation)) {
             if (position < operationLog.size()) {
-                operationLog.remove(position);
-                // Update parentIDs after deletion
-                for (int i = position; i < operationLog.size(); i++) {
-                    OperationEntry current = operationLog.get(i);
-                    current.setParentID(i > 0 ? operationLog.get(i-1).getUserID() : null);
-                }
+                OperationEntry original = operationLog.remove(position);
+                entry = new OperationEntry(
+                        "delete",  // Set operation directly to "delete"
+                        original.getCharacter(),
+                        original.getUserID()
+                );
+                entry.setParentID(original.getParentID());
             }
         }
 
         operationsToBeSent.add(entry);
         crdt.integrate(entry);
-        String doc = crdt.getSequenceText();
-        System.out.println("My Tree Contains : " + doc);
+       
+
+
+            List<OperationEntry> operationLog1 = crdt.exportVisibleOperations();
+            System.out.println("Operation Log (" + operation + " at " + position + "):");
+            for (int i = 0; i < operationLog1.size(); i++) {
+                System.out.println("[" + i + "]: " + operationLog1.get(i));
+            }
+           
+            crdt.printAsciiTree();
+            System.out.println("My Tree Has ops \n");
         
+        String doc = crdt.getSequenceText();
+        System.out.println("My Tree Has : " + doc);
+
+
+
         System.out.println("Operation Log (" + operation + " at " + position + "):");
         for (int i = 0; i < operationLog.size(); i++) {
             System.out.println("[" + i + "]: " + operationLog.get(i));
@@ -119,10 +136,6 @@ public class SessionHandler {
         System.out.println("OperationsToBeSent (" + operationsToBeSent.size() + " entries):");
         for (int i = 0; i < operationsToBeSent.size(); i++) {
             System.out.println("[" + i + "]: " + operationsToBeSent.get(i));
-        }
-
-        if (stompSession != null && stompSession.isConnected()) {
-            stompSession.send("/app/edit/" + sessionId, entry.toMap());
         }
     }
 
