@@ -3,8 +3,6 @@ package example.com.example.Controllers.handlers;
 import java.lang.reflect.Type;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -25,6 +23,8 @@ import org.springframework.web.socket.sockjs.client.SockJsClient;
 import org.springframework.web.socket.sockjs.client.Transport;
 import org.springframework.web.socket.sockjs.client.WebSocketTransport;
 
+import example.com.example.Controllers.CRDT.OperationEntry;
+import example.com.example.Controllers.CRDT.TreeCrdt;
 import javafx.application.Platform;
 import javafx.scene.control.ListView;
 import javafx.scene.control.TextArea;
@@ -39,6 +39,7 @@ public class SessionHandler {
     private final BiConsumer<String, Integer> onRemoteCursor;
     private final List<OperationEntry> operationLog = new ArrayList<>();
     private final List<OperationEntry> operationsToBeSent = new ArrayList<>();
+    private final TreeCrdt crdt = new TreeCrdt();
 
     public SessionHandler(TextArea editorArea,
                          ListView<String> usersList,
@@ -106,6 +107,9 @@ public class SessionHandler {
         }
 
         operationsToBeSent.add(entry);
+        crdt.integrate(entry);
+        String doc = crdt.getSequenceText();
+        System.out.println("My Tree Contains : " + doc);
         
         System.out.println("Operation Log (" + operation + " at " + position + "):");
         for (int i = 0; i < operationLog.size(); i++) {
@@ -247,49 +251,3 @@ public class SessionHandler {
     }
 }
 
-class OperationEntry {
-    private String operation;
-    private char character;
-    // private int position;
-    private Object[] userID;
-    private Object[] parentID;
-
-    public OperationEntry(String operation, char character, Object[] userID) {
-        this.operation = operation;
-        this.character = character;
-        // this.position = position;
-        this.userID = userID;
-    }
-
-    public String getOperation() { return operation; }
-    public char getCharacter() { return character; }
-    // public int getPosition() { return position; }
-    public Object[] getUserID() { return userID; }
-    public Object[] getParentID() { return parentID; }
-
-    public void setParentID(Object[] parentID) {
-        this.parentID = parentID;
-    }
-
-    public Map<String, Object> toMap() {
-        Map<String, Object> map = new HashMap<>();
-        map.put("operation", operation);
-        map.put("character", String.valueOf(character));
-        // map.put("position", String.valueOf(position));
-        map.put("userID", userID);
-        map.put("parentID", parentID);
-        return map;
-    }
-
-    @Override
-    public String toString() {
-        return String.format("{operation=%s, character=%c, " +
-                             "userID=%s, parentID=%s}",
-            operation,
-            character,
-            // position,
-            Arrays.toString(userID),
-            parentID != null ? Arrays.toString(parentID) : "null"
-        );
-    }
-}
