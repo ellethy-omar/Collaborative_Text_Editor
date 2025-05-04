@@ -1,6 +1,9 @@
 package example.com.example.Controllers.handlers;
 
 import java.lang.reflect.Type;
+import java.net.URI;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.Executors;
@@ -14,6 +17,7 @@ import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
@@ -251,6 +255,7 @@ public class SessionHandler {
 
     private void sendJoin() {
         stompSession.send("/app/join/" + sessionId, Map.of("username", username));
+        fetchAndApplyStorage();
     }
 
     public void sendCursorUpdate(int pos) {
@@ -273,6 +278,13 @@ public class SessionHandler {
         stompSession.send("/app/operation/" + sessionId, payload);
 
         operationsToBeSent.clear();
+    }
+
+    public void fetchAndApplyStorage() {
+        RestTemplate rest = new RestTemplate();
+        Map<String, Object> resp = rest.getForObject("http://localhost:8080/api/sessions/" + sessionId + "/getStorage", Map.class);
+        var storage = resp.get("storage");
+        System.out.println(storage);
     }
 }
 
@@ -321,4 +333,6 @@ class OperationEntry {
             parentID != null ? Arrays.toString(parentID) : "null"
         );
     }
+
+
 }

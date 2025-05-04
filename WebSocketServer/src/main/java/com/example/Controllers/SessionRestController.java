@@ -7,7 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
-import java.util.Set;
+import java.util.Queue;
 
 @RestController
 @RequestMapping("/api/sessions")
@@ -83,5 +83,14 @@ public class SessionRestController {
         }
         sessions.destroySession(token);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{token}/getStorage")
+    public  ResponseEntity<Map<String, Queue<Map<String, Object>>>> getFirstImpressions(@PathVariable String token) {
+        if(!sessions.exists(token)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        return ResponseEntity.ok(Map.of("storage", sessions.getByToken(token).getStorage()));
     }
 }
