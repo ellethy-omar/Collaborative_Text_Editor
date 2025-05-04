@@ -65,6 +65,7 @@ public class SessionHandler {
                     if (editorArea == null || !editorArea.isFocused()) return;
 
                     int caret = editorArea.getCaretPosition();
+                    System.out.println("Inside connection caret = " + caret);
 
                     Map<String, String> payload = new HashMap<>();
                     payload.put("username", username);
@@ -94,8 +95,10 @@ public class SessionHandler {
                 int caretPos = editorArea.getCaretPosition();
                 Platform.runLater(() -> {
                     editorArea.setText(text);
+                    System.out.println(text);
                     // put the caret back where it was
                     editorArea.positionCaret(Math.min(caretPos, text.length()));
+                    System.out.println(caretPos);
                 });
             }
         });
@@ -139,7 +142,9 @@ public class SessionHandler {
 
     public void sendTextUpdate(String text) {
         if (stompSession != null && stompSession.isConnected()) {
-            // include who sent it
+            System.out.println("Inside sendTextUpdate " +  text);
+            int caretPos = editorArea.getCaretPosition();
+            System.out.println("Caret: " + caretPos);
             stompSession.send(
                     "/app/edit/" + sessionId,
                     Map.of("username", username, "text", text)
