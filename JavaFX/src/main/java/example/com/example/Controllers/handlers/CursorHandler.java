@@ -1,108 +1,201 @@
 package example.com.example.Controllers.handlers;
 
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
+import javafx.application.Platform;
 import javafx.geometry.Bounds;
-import javafx.scene.control.Skin;
-import javafx.scene.control.skin.TextAreaSkin;
-import javafx.scene.layout.Pane;
 import javafx.scene.control.TextArea;
+import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Line;
+import javafx.scene.text.Text;
+import javafx.util.Duration;
 
-import java.lang.reflect.Method;
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * Draws a little vertical line at a given caret position for each remote user.
+ * Robust cursor overlay for JavaFX TextArea:
+ *  • Computes caret x/y by measuring the prefix string
+ *  • Adjusts for insets & scroll offsets
+ *  • Re‑positions on text/change/scroll
+ *  • Flashes & labels each user’s caret
  */
 public class CursorHandler {
     private final TextArea editor;
     private final Pane overlay;
-    private final Map<String, Line> cursors = new HashMap<>();
+
+    // map username → representation
+    private final Map<String, CursorRepresentation> cursors = new HashMap<>();
+    // assign each user one of up to 4 contrasting colors
     private final Map<String, Color> userColors = new HashMap<>();
-    private final Deque<String> availableNames;
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+    // helper Text node to measure string widths
+    private final Text measurer = new Text();
+    // approximate single‑line height (will be reassigned once scene is ready)
+    private double lineHeight;
+
+    // your 4 chosen colors:
+    private static final Color[] CURSOR_COLORS = {
+            Color.rgb(255,   0,   0, 0.8), // red
+            Color.rgb(  0, 128, 255, 0.8), // blue
+            Color.rgb(  0, 180,   0, 0.8), // green
+            Color.rgb(255, 140,   0, 0.8)  // orange
+    };
 
     public CursorHandler(TextArea editor, Pane overlay) {
-        this.editor = editor;
+        this.editor  = editor;
         this.overlay = overlay;
 
-        // Initialize available names and map them to colors
-        availableNames = new ArrayDeque<>(Arrays.asList("user1", "user2", "user3", "user4"));
-        assignColorsToUsers();
-    }
+        // bind overlay exactly to the TextArea’s size
+        overlay.prefWidthProperty().bind(editor.widthProperty());
+        overlay.prefHeightProperty().bind(editor.heightProperty());
+        overlay.setMouseTransparent(true);
 
-    // Map users to specific colors, you can change colors here or expand if more users
-    private void assignColorsToUsers() {
-        List<Color> colors = Arrays.asList(
-                Color.RED, Color.GREEN, Color.BLUE, Color.ORANGE
-        );
-        Iterator<Color> colorIterator = colors.iterator();
+        // configure our measurer
+        measurer.setFont(editor.getFont());
 
-        // Assign colors to users
-        for (String username : availableNames) {
-            if (colorIterator.hasNext()) {
-                userColors.put(username, colorIterator.next());
-            }
-        }
+        // calculate an initial lineHeight; once the editor is in the scene this will stabilize
+        Platform.runLater(() -> {
+            measurer.applyCss();
+            lineHeight = measurer.getLayoutBounds().getHeight() * 1.2;
+        });
+
+        // whenever text or scroll changes, recompute all cursors
+        editor.textProperty().addListener((obs, o, n) -> refreshAll());
+        editor.scrollTopProperty().addListener((obs, o, n) -> refreshAll());
+        editor.scrollLeftProperty().addListener((obs, o, n) -> refreshAll());
     }
 
     /**
-     * Called whenever we get {username, cursorPos} from the server.
+     * Called by your STOMP handler on receipt of a remote cursor update.
      */
-    public void updateCursor(String username, int pos) {
-        // Ensure thread-safety when accessing or modifying cursors map
-        lock.writeLock().lock();
-        try {
-            // compute pixel coords of 'pos' in the TextArea:
-            Bounds bounds = getBoundsForPosition(pos);
-            System.out.println(bounds);
-            if (bounds == null) return;
+    public void updateCursor(String username, int position) {
+        Platform.runLater(() -> {
+            // assign a color if needed
+            userColors.computeIfAbsent(username, u ->
+                    CURSOR_COLORS[userColors.size() % CURSOR_COLORS.length]
+            );
+            Color c = userColors.get(username);
 
-            double x = bounds.getMinX();
-            double y = bounds.getMinY();
+            // create or fetch the representation
+            CursorRepresentation rep = cursors.computeIfAbsent(username,
+                    u -> new CursorRepresentation(u, c, overlay));
 
-            // Create or move the line:
-            Line line = cursors.computeIfAbsent(username, u -> {
-                Line l = new Line(0, 0, 0, editor.getFont().getSize());
-                Color userColor = userColors.getOrDefault(username, Color.BLACK); // Default to black if no color found
-                l.setStroke(userColor);
-                l.setStrokeWidth(1);
-                overlay.getChildren().add(l);
-                return l;
-            });
+            // store the raw text‑index
+            rep.setPosition(position);
+            // position it now
+            positionCursor(rep);
+        });
+    }
 
-            line.setStartX(x);
-            line.setStartY(y);
-            line.setEndX(x);
-            line.setEndY(y + editor.getFont().getSize());
-
-        } catch (Exception e) {
-            // Log exception but don't crash the program
-            e.printStackTrace();
-        } finally {
-            lock.writeLock().unlock();
+    /** redraw every cursor (e.g. on scroll or text change) */
+    private void refreshAll() {
+        for (CursorRepresentation rep : cursors.values()) {
+            positionCursor(rep);
         }
     }
 
-    private Bounds getBoundsForPosition(int pos) {
-        try {
-            Skin<?> skin = editor.getSkin();
-            if (skin instanceof TextAreaSkin) {
-                TextAreaSkin taSkin = (TextAreaSkin) skin;
+    /** compute screen x/y for caret‑offset, then update the nodes */
+    private void positionCursor(CursorRepresentation rep) {
+        int pos = rep.getPosition();
+        String text = editor.getText();
 
-                // Access internal method modelToView to get bounds of position in TextArea
-                Method method = TextAreaSkin.class.getDeclaredMethod("modelToView", int.class);
-                method.setAccessible(true);
-                Object result = method.invoke(taSkin, pos);
+        // clamp into [0..length]
+        pos = Math.max(0, Math.min(pos, text.length()));
 
-                if (result instanceof Bounds) {
-                    return (Bounds) result;
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
+        // split into lines to compute row & prefix
+        String before = text.substring(0, pos);
+        int row = (int) before.chars().filter(ch -> ch == '\n').count();
+        int lastNL = before.lastIndexOf('\n');
+        String prefix = lastNL >= 0
+                ? before.substring(lastNL + 1)
+                : before;
+
+        // measure the prefix width
+        measurer.setText(prefix.isEmpty() ? " " : prefix);
+        measurer.applyCss();
+        double prefixW = measurer.getLayoutBounds().getWidth();
+
+        // gather Insets & scroll position
+        double insetX   = editor.getInsets().getLeft();
+        double insetY   = editor.getInsets().getTop();
+        double scrollX  = editor.getScrollLeft();
+        double scrollY  = editor.getScrollTop();
+
+        // compute final coords
+        double x = insetX + prefixW - scrollX;
+        double y = insetY + row * lineHeight  - scrollY;
+
+        // update the rep
+        rep.updateNodePositions(x, y, lineHeight);
+    }
+
+    /** clear out one user’s cursor (e.g. on disconnect) */
+    public void removeCursor(String username) {
+        Platform.runLater(() -> {
+            CursorRepresentation rep = cursors.remove(username);
+            if (rep != null) rep.remove();
+            userColors.remove(username);
+        });
+    }
+
+    // —————————————————————————————————————————————————————————————
+    // inner class that holds the Line, the label, and the flash animation
+    private static class CursorRepresentation {
+        private final Line cursorLine;
+        private final Text nameLabel;
+        private final Timeline flash;
+        private int position;
+
+        CursorRepresentation(String user, Color color, Pane parent) {
+            // line
+            cursorLine = new Line();
+            cursorLine.setStroke(color);
+            cursorLine.setStrokeWidth(2);
+
+            // label
+            nameLabel = new Text(user);
+            nameLabel.setFill(color);
+            nameLabel.setStyle("-fx-font-size:10px;");
+
+            // add to overlay
+            parent.getChildren().addAll(cursorLine, nameLabel);
+
+            // flashing animation
+            flash = new Timeline(
+                    new KeyFrame(Duration.ZERO,      e -> cursorLine.setVisible(true)),
+                    new KeyFrame(Duration.seconds(0.5), e -> cursorLine.setVisible(false)),
+                    new KeyFrame(Duration.seconds(1))
+            );
+            flash.setCycleCount(Timeline.INDEFINITE);
+            flash.play();
         }
-        return null;
+
+        void setPosition(int pos) {
+            this.position = pos;
+        }
+        int getPosition() {
+            return position;
+        }
+
+        /** move the visuals to x,y */
+        void updateNodePositions(double x, double y, double height) {
+            cursorLine.setStartX(x);
+            cursorLine.setStartY(y);
+            cursorLine.setEndX(x);
+            cursorLine.setEndY(y + height);
+
+            nameLabel.setX(x + 3);
+            nameLabel.setY(y - 3);
+        }
+
+        /** tear down */
+        void remove() {
+            flash.stop();
+            ((Pane)cursorLine.getParent())
+                    .getChildren().removeAll(cursorLine, nameLabel);
+        }
     }
 }

@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
-import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Controller;
@@ -92,7 +91,7 @@ public class WebSocketController {
         if (!sessions.isEditorToken(token)) return;
         String editor = sessions.getEditorFor(token);
         sessions.getAllTokensForEditor(editor)
-                .forEach(t -> tpl.convertAndSend("/topic/session/"+t+"/cursors", p));
+                .forEach(t -> tpl.convertAndSend("/topic/session/"+t+"/cursor", p));
     }
 
     @MessageMapping("/operation/{token}")

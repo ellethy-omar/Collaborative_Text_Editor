@@ -6,9 +6,9 @@ import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
+import javafx.scene.layout.Pane;
 import org.springframework.messaging.converter.MappingJackson2MessageConverter;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
@@ -26,27 +26,26 @@ import javafx.scene.control.ListView;
 import javafx.scene.control.TextArea;
 
 public class SessionHandler {
-    private final String wsUrl = "http://localhost:8080/ws";
     private final TextArea editorArea;
     private final ListView<String> usersList;
+    private final CursorHandler cursorHandler;
     private String sessionId;
     private final String username;
     private StompSession stompSession;
-    private final BiConsumer<String, Integer> onRemoteCursor;
     private final List<OperationEntry> operationLog = new ArrayList<>();
     private final List<OperationEntry> operationsToBeSent = new ArrayList<>();
 
     public SessionHandler(TextArea editorArea,
-                         ListView<String> usersList,
-                         String sessionId,
-                         String username,
-                         BiConsumer<String, Integer> onRemoteCursor) {
+                          ListView<String> usersList,
+                          Pane cursorOverlay,
+                          String sessionId,
+                          String username) {
         this.editorArea = editorArea;
         this.usersList = usersList;
         this.sessionId = sessionId;
         this.username = username;
-        this.onRemoteCursor = onRemoteCursor;
         String[] previousText = {editorArea.getText()};
+        this.cursorHandler = new CursorHandler(editorArea, cursorOverlay);
         
         editorArea.textProperty().addListener((observable, oldValue, newValue) -> {
             long timestamp = Instant.now().toEpochMilli();
@@ -71,6 +70,12 @@ public class SessionHandler {
                 }
             }
             previousText[0] = newValue;
+        });
+
+        editorArea.caretPositionProperty().addListener((obs, oldPos, newPos) -> {
+            if (stompSession != null && stompSession.isConnected() && editorArea.isFocused()) {
+                sendCursorUpdate(newPos.intValue());
+            }
         });
     }
 
@@ -152,10 +157,12 @@ public class SessionHandler {
         SockJsClient sockJs = new SockJsClient(transports);
         WebSocketStompClient client = new WebSocketStompClient(sockJs);
         client.setMessageConverter(new MappingJackson2MessageConverter());
+        String wsUrl = "http://localhost:8080/ws";
         client.connect(wsUrl, new WebSocketHttpHeaders(), new StompSessionHandlerAdapter() {
             @Override
             public void afterConnected(StompSession session, StompHeaders headers) {
                 stompSession = session;
+
                 subscribeUsers();
                 subscribeAckOperations();
                 sendJoin();
@@ -167,11 +174,6 @@ public class SessionHandler {
 
                     sendArrayOfOperations();
 
-                    if (!editorArea.isFocused())
-                        return;
-
-                    int caret = editorArea.getCaretPosition();
-                    sendCursorUpdate(caret);
                 }, 0, 3100, TimeUnit.MILLISECONDS);
                 
                 subscribeCursor();
@@ -196,10 +198,10 @@ public class SessionHandler {
                         String status             = (String) m.get("status");
                         Instant ts                = Instant.ofEpochMilli(tsNum.longValue());
 
-                        System.out.printf(
-                                "← ACK of %d ops from %s @ %s [%s]: %s%n",
-                                ops.size(), user, ts, status, ops
-                        );
+//                        System.out.printf(
+//                                "← ACK of %d ops from %s @ %s [%s]: %s%n",
+//                                ops.size(), user, ts, status, ops
+//                        );
 
                         // SOME CRDT LOGIC GOES IN HERE
                     }
@@ -214,6 +216,17 @@ public class SessionHandler {
             @Override public void handleFrame(StompHeaders h, Object p) {
                 Set<String> users = (Set<String>)p;
                 Platform.runLater(() -> usersList.getItems().setAll(users));
+
+                Set<String> currentUsers = new HashSet<>(users);
+                Set<String> previousUsers = new HashSet<>(usersList.getItems());
+                previousUsers.removeAll(currentUsers);
+
+                // Remove cursors for users who left
+                for (String leftUser : previousUsers) {
+                    if (!leftUser.equals(username)) {
+                        cursorHandler.removeCursor(leftUser);
+                    }
+                }
             }
         });
     }
@@ -223,12 +236,15 @@ public class SessionHandler {
             @Override public Type getPayloadType(StompHeaders h) { return Map.class; }
             @SuppressWarnings("unchecked")
             @Override public void handleFrame(StompHeaders h, Object p) {
+                System.out.println(p);
                 Map<String, String> m = (Map<String, String>) p;
                 String sender = m.get("username");
                 if (username.equals(sender)) return;
                 
                 int caret = Integer.parseInt(m.get("caret"));
-                Platform.runLater(() -> onRemoteCursor.accept(sender, caret));
+                System.out.println("Heard cursor updates");
+                System.out.println(m);
+                cursorHandler.updateCursor(sender, caret);
             }
         });
     }
@@ -257,8 +273,6 @@ public class SessionHandler {
         stompSession.send("/app/operation/" + sessionId, payload);
 
         operationsToBeSent.clear();
-
-        System.out.printf("→ SENT operations %s @ %d%n", opsPayload, ts);
     }
 }
 

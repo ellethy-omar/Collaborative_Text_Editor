@@ -85,9 +85,11 @@ public class CollaborationController {
         documentHandler = new DocumentHandler(editorArea);
         cursorHandler = new CursorHandler(editorArea, cursorOverlay);
         sessionHandler = new SessionHandler(
-                editorArea, activeUsersList,
-                sessionId, username,
-                cursorHandler::updateCursor
+                editorArea,
+                activeUsersList,
+                cursorOverlay,
+                sessionId,
+                username
         );
         sessionHandler.connectAndSubscribe();
     }
@@ -154,7 +156,7 @@ public class CollaborationController {
                     baseUrl, sessionId, username);
             rest.delete(url);
         } catch (Exception ex) {
-            System.err.println("Could not notify server of leave: " + ex.getMessage());
+            System.out.println("Could not notify server of leave: " + ex.getMessage());
         }
     }
 }
