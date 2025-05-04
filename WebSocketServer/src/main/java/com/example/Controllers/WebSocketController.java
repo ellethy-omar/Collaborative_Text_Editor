@@ -79,6 +79,9 @@ public class WebSocketController {
         sha.getSessionAttributes().put("token",     token);
         sha.getSessionAttributes().put("username",  username);
 
+        String sessionId = sha.getSessionId();
+        tpl.convertAndSendToUser(sessionId, "/queue/storage", sessions.getByToken(token).getStorage());
+
         var users = sessions.getUsers(token);
         List<String> targets = sessions.getAllTokensForEditor(editor).stream().toList();
         targets.forEach(t -> tpl.convertAndSend("/topic/session/"+t+"/users", users));
@@ -110,8 +113,6 @@ public class WebSocketController {
 
         Session session = sessions.getByToken(token);
         if (session != null) {
-            // concurrent queue handles multiple threads without blocking each other
-            Queue<Map<String,Object>> storage = session.getStorage();
             synchronized (session.getStorage()) {
                 session.getStorage().addAll(ops);
                 log.info("Thread‑safe: Added {} ops to session {} by {} at {}",

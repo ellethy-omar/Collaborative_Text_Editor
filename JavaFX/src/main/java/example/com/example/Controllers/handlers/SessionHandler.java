@@ -156,46 +156,31 @@ public class SessionHandler {
             @Override
             public void afterConnected(StompSession session, StompHeaders headers) {
                 stompSession = session;
-                subscribeUsers(session);
-                subscribeAckOperations(session);
-                sendJoin(session);
+                subscribeUsers();
+                subscribeAckOperations();
+                sendJoin();
                 
                 ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
                 scheduler.scheduleAtFixedRate(() -> {
-                    if (editorArea == null || !editorArea.isFocused()) return;
+                    if(!stompSession.isConnected())
+                        return;
+
+                    sendArrayOfOperations();
+
+                    if (!editorArea.isFocused())
+                        return;
+
                     int caret = editorArea.getCaretPosition();
                     sendCursorUpdate(caret);
-                }, 0, 100, TimeUnit.MILLISECONDS);
-
-                scheduler.scheduleAtFixedRate(() -> {
-                    if (stompSession != null && stompSession.isConnected()) {
-                        long ts = Instant.now().toEpochMilli();
-
-                        // 1) convert your static entries to a List of Maps
-                        List<Map<String,Object>> opsPayload = operationsToBeSent.stream()
-                                .map(OperationEntry::toMap)
-                                .collect(Collectors.toList());
-
-                        // 2) build and send the message
-                        Map<String,Object> payload = Map.of(
-                                "username",   username,
-                                "operations", opsPayload,
-                                "timestamp",  ts
-                        );
-                        stompSession.send("/app/operation/" + sessionId, payload);
-                        operationsToBeSent.clear();
-
-                        System.out.printf("→ SENT operations %s @ %d%n", opsPayload, ts);
-                    }
-                }, 0, 2000, TimeUnit.MILLISECONDS);
+                }, 0, 3100, TimeUnit.MILLISECONDS);
                 
-                subscribeCursor(session);
+                subscribeCursor();
             }
         });
     }
 
-    private void subscribeAckOperations(StompSession session) {
-        session.subscribe(
+    private void subscribeAckOperations() {
+        stompSession.subscribe(
                 "/topic/session/" + sessionId + "/operation/ack",
                 new StompFrameHandler() {
                     @Override public Type getPayloadType(StompHeaders headers) {
@@ -215,13 +200,15 @@ public class SessionHandler {
                                 "← ACK of %d ops from %s @ %s [%s]: %s%n",
                                 ops.size(), user, ts, status, ops
                         );
+
+                        // SOME CRDT LOGIC GOES IN HERE
                     }
                 }
         );
     }
 
-    private void subscribeUsers(StompSession session) {
-        session.subscribe("/topic/session/" + sessionId + "/users", new StompFrameHandler() {
+    private void subscribeUsers() {
+        stompSession.subscribe("/topic/session/" + sessionId + "/users", new StompFrameHandler() {
             @Override public Type getPayloadType(StompHeaders h) { return Set.class; }
             @SuppressWarnings("unchecked")
             @Override public void handleFrame(StompHeaders h, Object p) {
@@ -231,8 +218,8 @@ public class SessionHandler {
         });
     }
 
-    private void subscribeCursor(StompSession session) {
-        session.subscribe("/topic/session/" + sessionId + "/cursor", new StompFrameHandler() {
+    private void subscribeCursor() {
+        stompSession.subscribe("/topic/session/" + sessionId + "/cursor", new StompFrameHandler() {
             @Override public Type getPayloadType(StompHeaders h) { return Map.class; }
             @SuppressWarnings("unchecked")
             @Override public void handleFrame(StompHeaders h, Object p) {
@@ -246,13 +233,32 @@ public class SessionHandler {
         });
     }
 
-    private void sendJoin(StompSession session) {
-        session.send("/app/join/" + sessionId, Map.of("username", username));
+    private void sendJoin() {
+        stompSession.send("/app/join/" + sessionId, Map.of("username", username));
     }
 
     public void sendCursorUpdate(int pos) {
         stompSession.send("/app/cursor/" + sessionId,
             Map.of("username", username, "cursor", pos));
+    }
+
+    public void sendArrayOfOperations() {
+        long ts = Instant.now().toEpochMilli();
+
+        List<Map<String,Object>> opsPayload = operationsToBeSent.stream()
+                .map(OperationEntry::toMap)
+                .collect(Collectors.toList());
+
+        Map<String,Object> payload = Map.of(
+                "username",   username,
+                "operations", opsPayload,
+                "timestamp",  ts
+        );
+        stompSession.send("/app/operation/" + sessionId, payload);
+
+        operationsToBeSent.clear();
+
+        System.out.printf("→ SENT operations %s @ %d%n", opsPayload, ts);
     }
 }
 

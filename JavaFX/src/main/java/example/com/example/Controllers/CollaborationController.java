@@ -90,12 +90,6 @@ public class CollaborationController {
                 cursorHandler::updateCursor
         );
         sessionHandler.connectAndSubscribe();
-
-        if (isEditor) {
-//            editorArea.textProperty().addListener((o, oldT, newT) -> {
-//                sessionHandler.sendTextUpdate(newT);
-//            });
-        }
     }
 
     @FXML
