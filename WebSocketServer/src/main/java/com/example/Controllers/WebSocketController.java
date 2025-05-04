@@ -71,6 +71,11 @@ public class WebSocketController {
         // 1) Server-side log of the received OperationEntry array
         log.info("Received {} ops from {} @ {}: {}", ops.size(), user, instantTs, ops);
 
+        var session = sessions.getByToken(token);
+        if (session != null) {
+            session.getStorage().addAll(ops);
+        }
+
         // 2) Broadcast the operations list to all clients
         tpl.convertAndSend(
                 "/topic/session/" + token + "/random",

@@ -12,10 +12,14 @@ public class Session {
             Arrays.asList("user1", "user2", "user3", "user4")
     );
     private String sessionText = "";
+    private List<Map<String,Object>> storage;
 
     public Session(String sessionId) {
         this.sessionId = sessionId;
+        storage = new ArrayList<>();
     }
+
+    public List<Map<String,Object>> getStorage() {return storage;}
 
     public synchronized String addUser(String username) {
         if (users.size() >= 4) {

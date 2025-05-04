@@ -223,6 +223,9 @@ public class SessionHandler {
         });
     }
 
+    // storage and temp
+    // multiple users
+
     private void subscribeOperations(StompSession session) {
         session.subscribe("/topic/session/" + sessionId + "/random", new StompFrameHandler() {
             @Override public Type getPayloadType(StompHeaders headers) {

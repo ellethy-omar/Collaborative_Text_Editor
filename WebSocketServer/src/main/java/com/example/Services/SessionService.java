@@ -62,6 +62,12 @@ public class SessionService {
         var s = getByToken(token);
         return s != null ? s.getUsers() : Set.of();
     }
+
+    public List<Map<String,Object>> getSessionStorage(String token) {
+        var s = getByToken(token);
+        return s!= null ? s.getStorage() : null;
+    }
+
     public String getSessionText(String token) {
         var s = getByToken(token);
         return s != null ? s.getSessionText() : "";
