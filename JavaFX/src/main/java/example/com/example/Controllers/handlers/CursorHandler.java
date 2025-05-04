@@ -73,20 +73,27 @@ public class CursorHandler {
      */
     public void updateCursor(String username, int position) {
         Platform.runLater(() -> {
-            // assign a color if needed
-            userColors.computeIfAbsent(username, u ->
-                    CURSOR_COLORS[userColors.size() % CURSOR_COLORS.length]
-            );
-            Color c = userColors.get(username);
+            try {
+                // Create or fetch cursor representation
+                userColors.computeIfAbsent(username, u ->
+                        CURSOR_COLORS[userColors.size() % CURSOR_COLORS.length]
+                );
+                Color c = userColors.get(username);
 
-            // create or fetch the representation
-            CursorRepresentation rep = cursors.computeIfAbsent(username,
-                    u -> new CursorRepresentation(u, c, overlay));
+                CursorRepresentation rep = cursors.computeIfAbsent(username,
+                        u -> new CursorRepresentation(u, c, overlay));
 
-            // store the raw text‑index
-            rep.setPosition(position);
-            // position it now
-            positionCursor(rep);
+                rep.setPosition(position);
+                positionCursor(rep);
+
+                // Ensure cursor is visible
+                rep.cursorLine.setVisible(true);
+                rep.nameLabel.setVisible(true);
+
+            } catch (Exception e) {
+                System.err.println("Error updating cursor for " + username + ": " + e.getMessage());
+                e.printStackTrace();
+            }
         });
     }
 

@@ -9,7 +9,7 @@ import javafx.scene.control.*;
 import javafx.scene.layout.Pane;
 import org.springframework.web.client.RestTemplate;
 
-import javax.annotation.PreDestroy;
+// Removed javax.annotation.PreDestroy as it is not accessible
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
@@ -145,8 +145,8 @@ public class CollaborationController {
         Platform.exit();
     }
 
-    @PreDestroy
-    private void onControllerDestroy() {
+    @Override
+    public void finalize() {
         leaveSession();
     }
 
