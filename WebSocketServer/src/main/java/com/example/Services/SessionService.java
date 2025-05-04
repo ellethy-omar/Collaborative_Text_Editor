@@ -4,68 +4,71 @@ import com.example.CRDT.Session;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Service
 public class SessionService {
-    private final Map<String, Session> sessions = new ConcurrentHashMap<>();
+    private final Map<String,Session> sessions = new ConcurrentHashMap<>();
+    private final Set<String> editorTokens = ConcurrentHashMap.newKeySet();
     private final SecureRandom random = new SecureRandom();
     private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-    public String createSession(String initialText) {
+    private String generateCode() {
         String code;
         do {
             code = random.ints(6, 0, CHARS.length())
                     .mapToObj(i -> String.valueOf(CHARS.charAt(i)))
-                    .reduce("", String::concat);
+                    .collect(Collectors.joining());
         } while (sessions.containsKey(code));
-
-        Session session = new Session(code);
-        session.setSessionText(initialText);
-        sessions.put(code, session);
         return code;
     }
 
-    public String createSession() {
-        return createSession("");
+    public SessionTokens createSession(String initialText) {
+        String editor = generateCode();
+        String viewer = generateCode();
+        Session sess = new Session(editor);
+        sess.setSessionText(initialText);
+        sessions.put(editor, sess);
+        sessions.put(viewer, sess);
+        editorTokens.add(editor);
+        return new SessionTokens(editor, viewer);
     }
 
-    public boolean exists(String sessionId) {
-        return sessions.containsKey(sessionId);
+    public boolean exists(String token) { return sessions.containsKey(token); }
+    public boolean isEditorToken(String token) { return editorTokens.contains(token); }
+    public Session getByToken(String token) { return sessions.get(token); }
+    public String getEditorFor(String token) {
+        Session s = sessions.get(token);
+        return s == null ? null : s.getSessionId();
+    }
+    public Set<String> getAllTokensForEditor(String editor) {
+        return sessions.entrySet().stream()
+                .filter(e -> e.getValue().getSessionId().equals(editor))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
     }
 
-    public String addUser(String sessionId, String username) {
-        Session session = sessions.get(sessionId);
-        if (session == null) {
-            throw new IllegalArgumentException("Session not found: " + sessionId);
-        }
-        return session.addUser(username);
+    public String addUser(String token, String username) {
+        if (!isEditorToken(token)) throw new IllegalStateException("Cannot add user on viewer token");
+        return getByToken(token).addUser(username);
     }
-
-    public boolean removeUser(String sessionId, String username) {
-        Session session = sessions.get(sessionId);
-        if (session == null)
-            return false;
-        return session.removeUser(username);
+    public boolean removeUser(String token, String username) {
+        var s = getByToken(token);
+        return s != null && s.removeUser(username);
     }
-
-    public Set<String> getUsers(String sessionId) {
-        Session session = sessions.get(sessionId);
-        return session != null ? session.getUsers() : Set.of();
+    public Set<String> getUsers(String token) {
+        var s = getByToken(token);
+        return s != null ? s.getUsers() : Set.of();
     }
-
-    public String getSessionText(String sessionId) {
-        Session session = sessions.get(sessionId);
-        return session != null ? session.getSessionText() : "";
+    public String getSessionText(String token) {
+        var s = getByToken(token);
+        return s != null ? s.getSessionText() : "";
     }
-
-    public void updateSessionText(String sessionId, String newText) {
-        Session session = sessions.get(sessionId);
-        if (session != null) {
-            session.setSessionText(newText);
-            System.out.println(newText);
-        }
+    public void updateSessionText(String token, String text) {
+        if (!isEditorToken(token)) return;
+        var s = getByToken(token);
+        if (s != null) s.setSessionText(text);
     }
 }

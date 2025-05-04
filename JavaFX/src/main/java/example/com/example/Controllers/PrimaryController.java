@@ -29,20 +29,19 @@ public class PrimaryController {
     @FXML
     private void handleNewDoc() {
         try {
-            // 1) Create the session
+            // create session
             Map<String, String> resp = rest.postForObject(baseUrl, Map.of(), Map.class);
-            String sessionId = resp.get("sessionId");
+            String editorCode = resp.get("sessionId");
+            String viewerCode = resp.get("viewerCode");
 
-            // 2) Add a user *and get back* the assigned username
-            Map<String,String> userResp = rest.postForObject(
-                    baseUrl + "/" + sessionId + "/user",
-                    Map.of(),
-                    Map.class
+            // claim editor slot
+            Map<String, String> userResp = rest.postForObject(
+                    baseUrl + "/" + editorCode + "/user",
+                    Map.of(), Map.class
             );
             String assignedUser = userResp.get("username");
 
-            // 3) Hand off sessionId + assignedUser
-            loadCollabView(sessionId, "", assignedUser);
+            loadCollabView(editorCode, viewerCode, "", assignedUser, true);
         } catch (Exception e) {
             showAlert("Failed to create a new session. Please try again.");
         }
@@ -52,34 +51,30 @@ public class PrimaryController {
     @FXML
     private void handleJoin() {
         String code = sessionCodeField.getText().trim();
-        if (code.isEmpty()) {
-            showAlert("Please enter a session code.");
-            return;
-        }
+        if (code.isEmpty()) { showAlert("Please enter a session code."); return; }
+
         try {
             Boolean exists = rest.getForObject(baseUrl + "/" + code + "/exists", Boolean.class);
-            if (!Boolean.TRUE.equals(exists)) {
-                showAlert("Session does not exist.");
-                return;
+            if (!Boolean.TRUE.equals(exists)) { showAlert("Session does not exist."); return; }
+
+            Map<String,Object> meta = rest.getForObject(baseUrl + "/" + code, Map.class);
+            String editorCode = (String) meta.get("editorCode");
+            String viewerCode = (String) meta.get("viewerCode");
+            String initialText = (String) meta.get("text");
+
+            boolean isEditor = code.equals(editorCode);
+            String assignedUser;
+            if (isEditor) {
+                Map<String,String> userResp = rest.postForObject(
+                        baseUrl + "/" + editorCode + "/user",
+                        Map.of(), Map.class
+                );
+                assignedUser = userResp.get("username");
+            } else {
+                assignedUser = "viewer";
             }
 
-            @SuppressWarnings("unchecked")
-            Map<String,Object> sessionData = rest.getForObject(
-                    baseUrl + "/" + code,
-                    Map.class
-            );
-            String initialText = (String)sessionData.get("text");
-
-            @SuppressWarnings("unchecked")
-            Map<String,String> userResp = rest.postForObject(
-                    baseUrl + "/" + code + "/user",
-                    Map.of(),
-                    Map.class
-            );
-            String assignedUser = userResp.get("username");
-
-            loadCollabView(code, initialText, assignedUser);
-
+            loadCollabView(editorCode, viewerCode, initialText, assignedUser, isEditor);
         } catch (Exception e) {
             showAlert("Unable to join session. Please try again.");
         }
@@ -104,30 +99,34 @@ public class PrimaryController {
             showAlert("Error reading file");
             return;
         }
+
         try {
             Map<String,String> resp = rest.postForObject(baseUrl, Map.of(), Map.class);
-            String sessionId = resp.get("sessionId");
+            String editorCode = resp.get("sessionId");
+            String viewerCode = resp.get("viewerCode");
 
             Map<String,String> userResp = rest.postForObject(
-                    baseUrl + "/" + sessionId + "/user",
-                    Map.of(),
-                    Map.class
+                    baseUrl + "/" + editorCode + "/user",
+                    Map.of(), Map.class
             );
             String assignedUser = userResp.get("username");
-            loadCollabView(sessionId, sb.toString(), assignedUser);
+
+            loadCollabView(editorCode, viewerCode, sb.toString(), assignedUser, true);
         } catch (Exception e) {
             showAlert("Unable to import and start session.");
         }
     }
 
-    private void loadCollabView(String sessionId, String initialText, String username) {
+    private void loadCollabView(String editorCode,
+                                String viewerCode,
+                                String initialText,
+                                String username,
+                                boolean isEditor) {
         try {
-            FXMLLoader loader = new FXMLLoader(
-                    App.class.getResource("collaboration.fxml")
-            );
+            FXMLLoader loader = new FXMLLoader(App.class.getResource("collaboration.fxml"));
             Parent root = loader.load();
             CollaborationController ctrl = loader.getController();
-            ctrl.initSession(sessionId, initialText, username);
+            ctrl.initSession(editorCode, viewerCode, initialText, username, isEditor);
             getStage().setScene(new Scene(root, 800, 600));
         } catch (IOException e) {
             showAlert("Could not open collaboration view");

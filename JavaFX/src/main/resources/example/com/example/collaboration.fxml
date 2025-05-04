@@ -18,9 +18,9 @@
             </items>
          </MenuButton>
          <Separator orientation="VERTICAL"/>
-         <Label text="Session Code:"/>
-         <TextField fx:id="sessionCodeField" promptText="Enter code" prefWidth="120"/>
-         <Button text="Join" onAction="#handleJoinSession"/>
+         <Label fx:id="editorCodeLabel" text="Editor Code: —" />
+         <Label fx:id="viewerCodeLabel" text="Viewer Code: —" />
+<!--         <TextField fx:id="sessionCodeField" promptText="Enter editor or viewer code"/>-->
          <Separator orientation="VERTICAL"/>
          <Label text="Current Session:" />
          <Label fx:id="currentSessionLabel" style="-fx-font-weight:bold" />
