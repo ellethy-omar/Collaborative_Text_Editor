@@ -4,8 +4,9 @@ JavaFX/.idea
 JavaFX/.mvn
 JavaFX/target
 JavaFX/mvnw.cmd
-
+JavaFX/pom.xml
 WebSocketServer/.idea
 WebSocketServer/.mvn
 WebSocketServer/target
 WebSocketServer/mvnw.cmd
+JavaFX/pom.xml
