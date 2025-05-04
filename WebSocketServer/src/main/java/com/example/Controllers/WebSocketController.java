@@ -1,6 +1,6 @@
 package com.example.Controllers;
 
-import com.example.services.SessionService;
+import com.example.Services.SessionService;
 import org.springframework.messaging.handler.annotation.*;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;

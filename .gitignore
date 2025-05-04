@@ -9,3 +9,5 @@ WebSocketServer/.idea
 WebSocketServer/.mvn
 WebSocketServer/target
 WebSocketServer/mvnw.cmd
+
+JavaFX/pom.xml

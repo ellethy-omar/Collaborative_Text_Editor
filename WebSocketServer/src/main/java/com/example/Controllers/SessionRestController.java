@@ -1,6 +1,6 @@
 package com.example.Controllers;
 
-import com.example.services.SessionService;
+import com.example.Services.SessionService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
