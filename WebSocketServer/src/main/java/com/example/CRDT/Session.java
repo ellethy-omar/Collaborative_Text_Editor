@@ -1,6 +1,7 @@
 package com.example.CRDT;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Represents a collaborative editing session with auto-assigned user slots and text storage.
@@ -12,14 +13,16 @@ public class Session {
             Arrays.asList("user1", "user2", "user3", "user4")
     );
     private String sessionText = "";
-    private List<Map<String,Object>> storage;
+    private final Queue<Map<String,Object>> storage = new ConcurrentLinkedQueue<>();
+
 
     public Session(String sessionId) {
         this.sessionId = sessionId;
-        storage = new ArrayList<>();
     }
 
-    public List<Map<String,Object>> getStorage() {return storage;}
+    public Queue<Map<String,Object>> getStorage() {
+        return storage; // thread‑safe queue for concurrent addAll/iterations
+    }
 
     public synchronized String addUser(String username) {
         if (users.size() >= 4) {

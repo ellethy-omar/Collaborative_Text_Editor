@@ -35,32 +35,7 @@ public class SessionHandler {
     private final BiConsumer<String, Integer> onRemoteCursor;
     private final List<OperationEntry> operationLog = new ArrayList<>();
     private final List<OperationEntry> operationsToBeSent = new ArrayList<>();
-    private static final OperationEntry[] STATIC_OPS = {
-            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'A', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("insert", 'B', new Object[]{"user1", System.currentTimeMillis()}),
-            new OperationEntry("delete", 'C', new Object[]{"user1", System.currentTimeMillis()})
-    };
+
     public SessionHandler(TextArea editorArea,
                          ListView<String> usersList,
                          String sessionId,
@@ -106,7 +81,7 @@ public class SessionHandler {
             // position,
             new Object[]{username, timestamp}
         );
-        
+
         if ("insert".equals(operation)) {
             // If inserting at position 0, parentID should always be null
             if (position == 0) {
@@ -115,32 +90,31 @@ public class SessionHandler {
                 entry.setParentID(operationLog.get(position - 1).getUserID());
             }
             operationLog.add(position, entry);
+            // operationsToBeSent.add(entry);
+
         } else if ("delete".equals(operation)) {
             if (position < operationLog.size()) {
-                operationLog.remove(position);
-                // Update parentIDs after deletion
-                for (int i = position; i < operationLog.size(); i++) {
-                    OperationEntry current = operationLog.get(i);
-                    current.setParentID(i > 0 ? operationLog.get(i-1).getUserID() : null);
-                }
+                OperationEntry original = operationLog.remove(position);
+                entry = new OperationEntry(
+                        "delete",  // Set operation directly to "delete"
+                        original.getCharacter(),
+                        original.getUserID()
+                );
+                entry.setParentID(original.getParentID());
             }
         }
 
         operationsToBeSent.add(entry);
         
-        System.out.println("Operation Log (" + operation + " at " + position + "):");
-        for (int i = 0; i < operationLog.size(); i++) {
-            System.out.println("[" + i + "]: " + operationLog.get(i));
-        }
-
-        System.out.println("OperationsToBeSent (" + operationsToBeSent.size() + " entries):");
-        for (int i = 0; i < operationsToBeSent.size(); i++) {
-            System.out.println("[" + i + "]: " + operationsToBeSent.get(i));
-        }
-
-        if (stompSession != null && stompSession.isConnected()) {
-            stompSession.send("/app/edit/" + sessionId, entry.toMap());
-        }
+//        System.out.println("Operation Log (" + operation + " at " + position + "):");
+//        for (int i = 0; i < operationLog.size(); i++) {
+//            System.out.println("[" + i + "]: " + operationLog.get(i));
+//        }
+//
+//        System.out.println("OperationsToBeSent (" + operationsToBeSent.size() + " entries):");
+//        for (int i = 0; i < operationsToBeSent.size(); i++) {
+//            System.out.println("[" + i + "]: " + operationsToBeSent.get(i));
+//        }
     }
 
     private int findDifferencePosition(String oldText, String newText) {
@@ -173,8 +147,6 @@ public class SessionHandler {
         return minLength;
     }
 
-    private final Random rnd = new Random();
-
     public void connectAndSubscribe() {
         List<Transport> transports = List.of(new WebSocketTransport(new StandardWebSocketClient()));
         SockJsClient sockJs = new SockJsClient(transports);
@@ -184,9 +156,7 @@ public class SessionHandler {
             @Override
             public void afterConnected(StompSession session, StompHeaders headers) {
                 stompSession = session;
-                subscribeEdit(session);
                 subscribeUsers(session);
-                subscribeOperations(session);
                 subscribeAckOperations(session);
                 sendJoin(session);
                 
@@ -202,7 +172,7 @@ public class SessionHandler {
                         long ts = Instant.now().toEpochMilli();
 
                         // 1) convert your static entries to a List of Maps
-                        List<Map<String,Object>> opsPayload = Arrays.stream(STATIC_OPS)
+                        List<Map<String,Object>> opsPayload = operationsToBeSent.stream()
                                 .map(OperationEntry::toMap)
                                 .collect(Collectors.toList());
 
@@ -213,45 +183,17 @@ public class SessionHandler {
                                 "timestamp",  ts
                         );
                         stompSession.send("/app/operation/" + sessionId, payload);
+                        operationsToBeSent.clear();
 
                         System.out.printf("→ SENT operations %s @ %d%n", opsPayload, ts);
                     }
-                }, 0, 100, TimeUnit.MILLISECONDS);
+                }, 0, 2000, TimeUnit.MILLISECONDS);
                 
                 subscribeCursor(session);
             }
         });
     }
 
-    // storage and temp
-    // multiple users
-
-    private void subscribeOperations(StompSession session) {
-        session.subscribe("/topic/session/" + sessionId + "/operation", new StompFrameHandler() {
-            @Override public Type getPayloadType(StompHeaders headers) {
-                return Map.class;
-            }
-            @SuppressWarnings("unchecked")
-            @Override public void handleFrame(StompHeaders headers, Object payload) {
-                Map<String,Object> map = (Map<String,Object>) payload;
-                String user          = (String) map.get("username");
-                @SuppressWarnings("unchecked")
-                List<Map<String,Object>> ops = (List<Map<String,Object>>) map.get("operations");
-                Number tsNum         = (Number) map.get("timestamp");
-                Instant ts           = Instant.ofEpochMilli(tsNum.longValue());
-
-                // Log locally
-                System.out.printf("← random %s from %s @ %s%n", ops, user, ts);
-
-                // Optionally update UI
-//                Platform.runLater(() -> {
-//                    editorArea.appendText("\n[Random] " + user + ": " + chars);
-//                });
-            }
-        });
-    }
-
-    // operation
     private void subscribeAckOperations(StompSession session) {
         session.subscribe(
                 "/topic/session/" + sessionId + "/operation/ack",
@@ -276,26 +218,6 @@ public class SessionHandler {
                     }
                 }
         );
-    }
-
-
-    private void subscribeEdit(StompSession session) {
-        session.subscribe("/topic/session/" + sessionId + "/edit", new StompFrameHandler() {
-            @Override public Type getPayloadType(StompHeaders h) { return Map.class; }
-            @SuppressWarnings("unchecked")
-            @Override public void handleFrame(StompHeaders h, Object p) {
-                Map<String, String> m = (Map<String,String>)p;
-                String sender = m.get("username");
-                if (username.equals(sender)) return;
-                
-                String text = m.get("text");
-                int caretPos = editorArea.getCaretPosition();
-                Platform.runLater(() -> {
-                    editorArea.setText(text);
-                    editorArea.positionCaret(Math.min(caretPos, text.length()));
-                });
-            }
-        });
     }
 
     private void subscribeUsers(StompSession session) {
@@ -328,24 +250,9 @@ public class SessionHandler {
         session.send("/app/join/" + sessionId, Map.of("username", username));
     }
 
-    public void sendTextUpdate(String text) {
-        if (stompSession != null && stompSession.isConnected()) {
-            stompSession.send("/app/edit/" + sessionId, 
-                Map.of("username", username, "text", text));
-        }
-    }
-
     public void sendCursorUpdate(int pos) {
-        if (stompSession != null && stompSession.isConnected()) {
-            stompSession.send("/app/cursor/" + sessionId, 
-                Map.of("username", username, "cursor", pos));
-        }
-    }
-
-    public void changeSession(String newSessionId) {
-        this.sessionId = newSessionId;
-        if (stompSession != null) stompSession.disconnect();
-        connectAndSubscribe();
+        stompSession.send("/app/cursor/" + sessionId,
+            Map.of("username", username, "cursor", pos));
     }
 }
 

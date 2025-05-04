@@ -20,6 +20,7 @@ module example.com.example {
     requires java.net.http;
     requires spring.web;
     requires spring.context;
+    requires java.annotation;
 
     opens example.com.example to javafx.fxml;
 

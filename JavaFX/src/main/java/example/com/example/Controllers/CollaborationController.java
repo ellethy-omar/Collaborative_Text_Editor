@@ -9,6 +9,7 @@ import javafx.scene.control.*;
 import javafx.scene.layout.Pane;
 import org.springframework.web.client.RestTemplate;
 
+import javax.annotation.PreDestroy;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
@@ -91,9 +92,9 @@ public class CollaborationController {
         sessionHandler.connectAndSubscribe();
 
         if (isEditor) {
-            editorArea.textProperty().addListener((o, oldT, newT) -> {
-                sessionHandler.sendTextUpdate(newT);
-            });
+//            editorArea.textProperty().addListener((o, oldT, newT) -> {
+//                sessionHandler.sendTextUpdate(newT);
+//            });
         }
     }
 
@@ -144,6 +145,22 @@ public class CollaborationController {
 
     @FXML
     private void handleExit() {
+        leaveSession();
         Platform.exit();
+    }
+
+    @PreDestroy
+    private void onControllerDestroy() {
+        leaveSession();
+    }
+
+    private void leaveSession() {
+        try {
+            String url = String.format("%s/%s/user/%s",
+                    baseUrl, sessionId, username);
+            rest.delete(url);
+        } catch (Exception ex) {
+            System.err.println("Could not notify server of leave: " + ex.getMessage());
+        }
     }
 }

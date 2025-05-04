@@ -71,4 +71,17 @@ public class SessionRestController {
         sessions.updateSessionText(token, body.get("text"));
         return ResponseEntity.noContent().build();
     }
+
+    @DeleteMapping("/{token}")
+    public ResponseEntity<Void> closeSession(@PathVariable String token) {
+        if (!sessions.exists(token)) {
+            return ResponseEntity.notFound().build();
+        }
+        // only the editor (owner) may tear it down:
+        if (!sessions.isEditorToken(token)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        sessions.destroySession(token);
+        return ResponseEntity.noContent().build();
+    }
 }

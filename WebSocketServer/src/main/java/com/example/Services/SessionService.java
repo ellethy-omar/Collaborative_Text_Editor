@@ -55,15 +55,23 @@ public class SessionService {
         return getByToken(token).addUser(username);
     }
     public boolean removeUser(String token, String username) {
-        var s = getByToken(token);
-        return s != null && s.removeUser(username);
+        Session s = getByToken(token);
+        boolean removed = s != null && s.removeUser(username);
+        if (removed) {
+            // if no more users in this session → destroy it
+            if (s.getUsers().isEmpty()) {
+                destroySession(s.getSessionId());
+                System.out.println("Destroyed session with token: " + token);
+            }
+        }
+        return removed;
     }
     public Set<String> getUsers(String token) {
         var s = getByToken(token);
         return s != null ? s.getUsers() : Set.of();
     }
 
-    public List<Map<String,Object>> getSessionStorage(String token) {
+    public Queue<Map<String,Object>> getSessionStorage(String token) {
         var s = getByToken(token);
         return s!= null ? s.getStorage() : null;
     }
@@ -76,5 +84,15 @@ public class SessionService {
         if (!isEditorToken(token)) return;
         var s = getByToken(token);
         if (s != null) s.setSessionText(text);
+    }
+
+    public void destroySession(String editorToken) {
+        // find all tokens for this editor
+        Set<String> all = getAllTokensForEditor(editorToken);
+        // remove each mapping
+        for (String tok : all) {
+            sessions.remove(tok);
+            editorTokens.remove(tok);
+        }
     }
 }

@@ -1,17 +1,25 @@
 package com.example.Controllers;
 
+import com.example.CRDT.Session;
 import com.example.Services.SessionService;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Controller;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.*;
 
 @Controller
 public class WebSocketController {
@@ -20,30 +28,60 @@ public class WebSocketController {
     private final SessionService sessions;
     private final SimpMessagingTemplate tpl;
 
+    private final ConcurrentMap<String, Queue<List<Map<String,Object>>>> tempBuffers = new ConcurrentHashMap<>();
+
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+
     public WebSocketController(SessionService sessions, SimpMessagingTemplate tpl) {
         this.sessions = sessions;
         this.tpl = tpl;
     }
 
+    @PostConstruct
+    public void startBatchBroadcast() {
+        scheduler.scheduleAtFixedRate(this::flushTempBuffers, 100, 100, TimeUnit.MILLISECONDS);
+    }
+
+    @PreDestroy
+    public void stopBatchBroadcast() {
+        scheduler.shutdown();
+    }
+
+    private void flushTempBuffers() {
+        for (Map.Entry<String, Queue<List<Map<String,Object>>>> entry : tempBuffers.entrySet()) {
+            String token = entry.getKey();
+            Queue<List<Map<String,Object>>> queue = entry.getValue();
+
+            // aggregate all waiting batches
+            List<Map<String,Object>> aggregated = new ArrayList<>();
+            List<Map<String,Object>> batch;
+            while ((batch = queue.poll()) != null) {
+                aggregated.addAll(batch);
+            }
+
+            if (!aggregated.isEmpty()) {
+                long ts = Instant.now().toEpochMilli();
+                tpl.convertAndSend(
+                        "/topic/session/" + token + "/operation/batch",
+                        Map.of("operations", aggregated, "timestamp", ts)
+                );
+                log.info("Broadcasted {} batched ops for session {} @ {}", aggregated.size(), token, Instant.ofEpochMilli(ts));
+            }
+        }
+    }
+
     @MessageMapping("/join/{token}")
-    public void join(@DestinationVariable String token, @Payload Map<String,String> p) {
+    public void join(@DestinationVariable String token, @Payload Map<String,String> p, StompHeaderAccessor sha) {
         if (!sessions.exists(token)) return;
         String editor = sessions.getEditorFor(token);
+
+        String username = p.get("username");
+        sha.getSessionAttributes().put("token",     token);
+        sha.getSessionAttributes().put("username",  username);
+
         var users = sessions.getUsers(token);
         List<String> targets = sessions.getAllTokensForEditor(editor).stream().toList();
         targets.forEach(t -> tpl.convertAndSend("/topic/session/"+t+"/users", users));
-    }
-
-    @MessageMapping("/edit/{token}")
-    public void edit(@DestinationVariable String token, @Payload Map<String,String> p) {
-        if (!sessions.isEditorToken(token)) return;
-        String editor = sessions.getEditorFor(token);
-        String user = p.get("username");
-        String text = p.get("text");
-        sessions.updateSessionText(token, text);
-        var msg = Map.of("username",user,"text",text);
-        sessions.getAllTokensForEditor(editor)
-                .forEach(t -> tpl.convertAndSend("/topic/session/"+t+"/edit", msg));
     }
 
     @MessageMapping("/cursor/{token}")
@@ -56,7 +94,7 @@ public class WebSocketController {
 
     @MessageMapping("/operation/{token}")
     public void operation(@DestinationVariable String token,
-                           @Payload Map<String,Object> payload) {
+                          @Payload Map<String,Object> payload) {
         if (!sessions.exists(token)) {
             log.warn("Unknown token {}", token);
             return;
@@ -68,35 +106,24 @@ public class WebSocketController {
         long ts = ((Number) payload.get("timestamp")).longValue();
         Instant instantTs = Instant.ofEpochMilli(ts);
 
-        // 1) Server-side log of the received OperationEntry array
         log.info("Received {} ops from {} @ {}: {}", ops.size(), user, instantTs, ops);
 
-        var session = sessions.getByToken(token);
+        Session session = sessions.getByToken(token);
         if (session != null) {
-            session.getStorage().addAll(ops);
+            // concurrent queue handles multiple threads without blocking each other
+            Queue<Map<String,Object>> storage = session.getStorage();
+            synchronized (session.getStorage()) {
+                session.getStorage().addAll(ops);
+                log.info("Thread‑safe: Added {} ops to session {} by {} at {}",
+                        ops.size(), session.getSessionId(), user, instantTs);
+            }
         }
 
-        // 2) Broadcast the operations list to all clients
-        tpl.convertAndSend(
-                "/topic/session/" + token + "/operation",
-                Map.of(
-                        "username",   user,
-                        "operations", ops,
-                        "timestamp",  ts
-                )
-        );
-
-        // 3) Send an ACK back carrying the same operations list
         tpl.convertAndSend(
                 "/topic/session/" + token + "/operation/ack",
-                Map.of(
-                        "username",   user,
-                        "operations", ops,
-                        "timestamp",  ts,
-                        "status",     "SERVER_RECEIVED"
-                )
+                Map.of("username", user, "operations", ops, "timestamp", ts, "status", "SERVER_RECEIVED")
         );
 
-        System.out.println("Logged and ACKed operations for token " + token);
+        log.info("Logged and ACKed operations for session {}", token);
     }
 }
