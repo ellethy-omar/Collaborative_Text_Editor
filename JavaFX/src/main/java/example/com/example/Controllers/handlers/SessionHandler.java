@@ -249,16 +249,17 @@ public class SessionHandler {
                 subscribeUsers();
                 subscribeAckOperations();
                 sendJoin();
-                
+
                 ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
                 scheduler.scheduleAtFixedRate(() -> {
                     sendArrayOfOperations();
 
                 }, 0, 100, TimeUnit.MILLISECONDS);
-                
+
                 subscribeCursor();
             }
         });
+
     }
 
     private void subscribeAckOperations() {
@@ -282,7 +283,6 @@ public class SessionHandler {
                         String status             = (String) m.get("status");
                         Instant ts                = Instant.ofEpochMilli(tsNum.longValue());
 
-//                        if (!username.equals(user)) {
                             List<OperationEntry> operationEntries = convertToOperationEntries(ops);
 
                         Platform.runLater(() -> {
@@ -308,7 +308,6 @@ public class SessionHandler {
                             // Re-enable listener
                             editorArea.textProperty().addListener(textChangeListener);
                         });
-//                        }
                     }
                 }
         );
