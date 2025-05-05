@@ -40,7 +40,7 @@ public class SessionHandler {
     private final String sessionId;
     private final String username;
     private StompSession stompSession;
-    private final List<OperationEntry> operationLog = new ArrayList<>();
+    private List<OperationEntry> operationLog = new ArrayList<>();
     private final List<OperationEntry> operationsToBeSent = new ArrayList<>();
     private ChangeListener<String> textChangeListener;
     private TreeCrdt crdt = new TreeCrdt();
@@ -123,6 +123,8 @@ public class SessionHandler {
 
         operationsToBeSent.add(entry);
 
+//        crdt.printTree();
+//
 //        System.out.println("Operation Log (" + operation + " at " + position + "):");
 //        for (int i = 0; i < operationLog.size(); i++) {
 //            System.out.println("[" + i + "]: " + operationLog.get(i));
@@ -182,8 +184,6 @@ public class SessionHandler {
                 
                 ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
                 scheduler.scheduleAtFixedRate(() -> {
-                    if(!stompSession.isConnected())
-                        return;
                     sendArrayOfOperations();
 
                 }, 0, 100, TimeUnit.MILLISECONDS);
@@ -214,7 +214,7 @@ public class SessionHandler {
                         String status             = (String) m.get("status");
                         Instant ts                = Instant.ofEpochMilli(tsNum.longValue());
 
-                        if (!username.equals(user)) {
+//                        if (!username.equals(user)) {
                             List<OperationEntry> operationEntries = convertToOperationEntries(ops);
 
                             Platform.runLater(() -> {
@@ -226,29 +226,28 @@ public class SessionHandler {
 
                                 // Apply operations to the CRDT
                                 crdt.integrateAll(operationEntries);
-
+                                operationLog = crdt.exportVisibleOperations();
                                 // Update editor with new text
                                 String newText = crdt.getSequenceText();
 
-                                crdt.printAsciiTree();
+//                                System.out.println("Printing from subscribeAckOperations");
+//                                crdt.printTree();
+//                                System.out.println(operationLog);
+//                                System.out.println(operationsToBeSent);
+
 
                                 editorArea.setText(newText);
-
-//                                List<OperationEntry> flat = crdt.exportVisibleOperations();
-
-//                                operationLog.clear();
-//                                operationLog.addAll(flat);
-
 
                                 // Restore caret position if possible
                                 if (caretPosition <= newText.length()) {
                                     editorArea.positionCaret(caretPosition);
+                                    sendCursorUpdate(caretPosition);
                                 }
 
                                 // Re-enable text listener
                                 editorArea.textProperty().addListener(textChangeListener);
                             });
-                        }
+//                        }
                     }
                 }
         );
@@ -358,6 +357,9 @@ public class SessionHandler {
     }
 
     public void fetchAndApplyStorage() {
+        if (!editorArea.getText().isEmpty())
+            return;
+
         RestTemplate rest = new RestTemplate();
 
         // Use a proper response type to handle the nested structure
@@ -384,8 +386,9 @@ public class SessionHandler {
                     // Update the editor text
                     Platform.runLater(() -> {
                         editorArea.setText(crdt.getSequenceText());
-                        System.out.println("Updated text: " + editorArea.getText());
-                        crdt.printAsciiTree();
+//                        System.out.println("Updated text: " + editorArea.getText());
+//                        crdt.printAsciiTree();
+                        operationLog = crdt.exportVisibleOperations();
                         // Re-enable text listener
                         editorArea.textProperty().addListener(textChangeListener);
                     });

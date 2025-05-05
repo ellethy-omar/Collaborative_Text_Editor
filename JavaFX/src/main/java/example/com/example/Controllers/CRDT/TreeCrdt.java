@@ -165,4 +165,24 @@ public class TreeCrdt {
             printAsciiRecursive(children.get(i), childPrefix, lastChild);
         }
     }
+
+    public List<OperationEntry> exportVisibleOperations() {
+        List<OperationEntry> ops = new ArrayList<>();
+        for (TreeNode child : root.getChildren()) {
+            exportVisibleRecursive(child, null, ops);
+        }
+        return ops;
+    }
+
+    private void exportVisibleRecursive(TreeNode node, Object[] parentID, List<OperationEntry> ops) {
+        if (!node.isTombstone()) {
+            OperationEntry ins = new OperationEntry("insert", node.getValue(), node.getUserID());
+            ins.setParentID(parentID);
+            ops.add(ins);
+        }
+        Object[] myID = node.getUserID();
+        for (TreeNode child : node.getChildren()) {
+            exportVisibleRecursive(child, myID, ops);
+        }
+    }
 }
