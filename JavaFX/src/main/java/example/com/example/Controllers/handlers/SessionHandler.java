@@ -105,7 +105,8 @@ public class SessionHandler {
             } else if (position > 0 && position <= operationLog.size()) {
                 entry.setParentID(operationLog.get(position - 1).getUserID());
             }
-            operationLog.add(position, entry);
+            int idx = Math.min(position, operationLog.size());
+            operationLog.add(idx, entry);
             // operationsToBeSent.add(entry);
 
         } else if ("delete".equals(operation)) {
@@ -121,6 +122,17 @@ public class SessionHandler {
         }
 
         operationsToBeSent.add(entry);
+
+//        System.out.println("Operation Log (" + operation + " at " + position + "):");
+//        for (int i = 0; i < operationLog.size(); i++) {
+//            System.out.println("[" + i + "]: " + operationLog.get(i));
+//        }
+//
+//        System.out.println("OperationsToBeSent (" + operationsToBeSent.size() + " entries):");
+//        for (int i = 0; i < operationsToBeSent.size(); i++) {
+//            System.out.println("[" + i + "]: " + operationsToBeSent.get(i));
+//        }
+
     }
 
     private int findDifferencePosition(String oldText, String newText) {
@@ -217,8 +229,16 @@ public class SessionHandler {
 
                                 // Update editor with new text
                                 String newText = crdt.getSequenceText();
-                                System.out.println(newText);
+
+                                crdt.printAsciiTree();
+
                                 editorArea.setText(newText);
+
+//                                List<OperationEntry> flat = crdt.exportVisibleOperations();
+
+//                                operationLog.clear();
+//                                operationLog.addAll(flat);
+
 
                                 // Restore caret position if possible
                                 if (caretPosition <= newText.length()) {
@@ -365,7 +385,7 @@ public class SessionHandler {
                     Platform.runLater(() -> {
                         editorArea.setText(crdt.getSequenceText());
                         System.out.println("Updated text: " + editorArea.getText());
-
+                        crdt.printAsciiTree();
                         // Re-enable text listener
                         editorArea.textProperty().addListener(textChangeListener);
                     });
