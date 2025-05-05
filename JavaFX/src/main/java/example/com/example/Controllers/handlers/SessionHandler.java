@@ -217,41 +217,66 @@ public class SessionHandler {
 //                        if (!username.equals(user)) {
                             List<OperationEntry> operationEntries = convertToOperationEntries(ops);
 
-                            Platform.runLater(() -> {
-                                // Store caret position before update
-                                int caretPosition = editorArea.getCaretPosition();
+                        Platform.runLater(() -> {
+                            // Capture current state before update
+                            int oldCaret = editorArea.getCaretPosition();
+                            String oldText = editorArea.getText();
 
-                                // Disable text listener temporarily
-                                editorArea.textProperty().removeListener(textChangeListener);
+                            // Disable listener to prevent feedback loop
+                            editorArea.textProperty().removeListener(textChangeListener);
 
-                                // Apply operations to the CRDT
-                                crdt.integrateAll(operationEntries);
-                                operationLog = crdt.exportVisibleOperations();
-                                // Update editor with new text
-                                String newText = crdt.getSequenceText();
+                            // Apply CRDT operations
+                            crdt.integrateAll(operationEntries);
+                            String newText = crdt.getSequenceText();
+                            operationLog = crdt.exportVisibleOperations();
 
-//                                System.out.println("Printing from subscribeAckOperations");
-//                                crdt.printTree();
-//                                System.out.println(operationLog);
-//                                System.out.println(operationsToBeSent);
+                            // Calculate new caret position
+                            int newCaret = calculateNewCaretPosition(oldText, newText, oldCaret);
 
+                            // Update UI components
+                            editorArea.setText(newText);
+                            editorArea.positionCaret(Math.min(newCaret, newText.length()));
 
-                                editorArea.setText(newText);
-
-                                // Restore caret position if possible
-                                if (caretPosition <= newText.length()) {
-                                    editorArea.positionCaret(caretPosition);
-                                    sendCursorUpdate(caretPosition);
-                                }
-
-                                // Re-enable text listener
-                                editorArea.textProperty().addListener(textChangeListener);
-                            });
+                            // Re-enable listener
+                            editorArea.textProperty().addListener(textChangeListener);
+                        });
 //                        }
                     }
                 }
         );
     }
+
+    private int calculateNewCaretPosition(String oldText, String newText, int oldCaret) {
+        int diffIndex = 0;
+        int oldLen = oldText.length();
+        int newLen = newText.length();
+
+        // Find first divergence point
+        while (diffIndex < oldLen && diffIndex < newLen
+                && oldText.charAt(diffIndex) == newText.charAt(diffIndex)) {
+            diffIndex++;
+        }
+
+        if (oldLen < newLen) {
+            // Handle insertions
+            int insertLength = newLen - oldLen;
+            if (oldCaret >= diffIndex) {
+                return oldCaret + insertLength;
+            }
+        } else if (oldLen > newLen) {
+            // Handle deletions
+            int deleteLength = oldLen - newLen;
+            if (oldCaret >= diffIndex + deleteLength) {
+                return oldCaret - deleteLength;
+            } else if (oldCaret > diffIndex) {
+                return diffIndex;
+            }
+        }
+
+        // Default case for no changes or prepend operations
+        return Math.min(oldCaret, newLen);
+    }
+
 
     @SuppressWarnings("unchecked")
     private List<OperationEntry> convertToOperationEntries(List<Map<String, Object>> maps) {
