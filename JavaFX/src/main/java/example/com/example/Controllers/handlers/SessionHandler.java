@@ -2,17 +2,16 @@ package example.com.example.Controllers.handlers;
 
 import java.lang.reflect.Type;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import com.sun.jdi.PrimitiveValue;
-import example.com.example.Controllers.CRDT.OperationEntry;
-import example.com.example.Controllers.CRDT.TreeCrdt;
-import javafx.beans.value.ChangeListener;
-import javafx.scene.layout.Pane;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.converter.MappingJackson2MessageConverter;
@@ -20,7 +19,6 @@ import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
-import java.util.Timer;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
@@ -29,9 +27,13 @@ import org.springframework.web.socket.sockjs.client.SockJsClient;
 import org.springframework.web.socket.sockjs.client.Transport;
 import org.springframework.web.socket.sockjs.client.WebSocketTransport;
 
+import example.com.example.Controllers.CRDT.OperationEntry;
+import example.com.example.Controllers.CRDT.TreeCrdt;
 import javafx.application.Platform;
+import javafx.beans.value.ChangeListener;
 import javafx.scene.control.ListView;
 import javafx.scene.control.TextArea;
+import javafx.scene.layout.Pane;
 
 public class SessionHandler {
     private final TextArea editorArea;
@@ -44,6 +46,8 @@ public class SessionHandler {
     private final List<OperationEntry> operationsToBeSent = new ArrayList<>();
     private ChangeListener<String> textChangeListener;
     private TreeCrdt crdt = new TreeCrdt();
+    private ScheduledExecutorService scheduler;
+    private final Object operationLock = new Object();
 
     public SessionHandler(TextArea editorArea,
                           ListView<String> usersList,
@@ -91,36 +95,65 @@ public class SessionHandler {
     }
 
     private void handleTextOperation(String operation, char character, int position, long timestamp) {
-        OperationEntry entry = new OperationEntry(
-            operation,
-            character,
-            // position,
-            new Object[]{username, timestamp}
-        );
+        synchronized(operationLock) {
+            if (position < 0) {
+                System.err.println("Invalid position: " + position);
+                return;
+            }
 
-        if ("insert".equals(operation)) {
-            // If inserting at position 0, parentID should always be null
-            if (position == 0) {
-                entry.setParentID(null);
-            } else if (position > 0 && position <= operationLog.size()) {
+            // Debug print
+            System.out.println("Operation: " + operation + ", Char: " + character + 
+                             ", Position: " + position + ", Time: " + timestamp);
+
+            // Create the operation entry
+            OperationEntry entry = new OperationEntry(
+                operation,
+                character,
+                new Object[]{username, timestamp}
+            );
+
+            // Set parent ID based on position
+            if (position > 0 && position <= operationLog.size()) {
                 entry.setParentID(operationLog.get(position - 1).getUserID());
             }
-            operationLog.add(position, entry);
-            // operationsToBeSent.add(entry);
 
-        } else if ("delete".equals(operation)) {
-            if (position < operationLog.size()) {
-                OperationEntry original = operationLog.remove(position);
-                entry = new OperationEntry(
-                        "delete",  // Set operation directly to "delete"
-                        original.getCharacter(),
-                        original.getUserID()
-                );
-                entry.setParentID(original.getParentID());
+            // First integrate locally
+            Platform.runLater(() -> {
+                // Temporarily remove listener
+                editorArea.textProperty().removeListener(textChangeListener);
+                
+                // Integrate operation into local CRDT
+                crdt.integrate(entry);
+                
+                // Update text area with CRDT state
+                String newText = crdt.getSequenceText();
+                editorArea.setText(newText);
+                
+                // Restore caret position
+                if (position < newText.length()) {
+                    editorArea.positionCaret(position);
+                }
+                
+                // Re-enable listener
+                editorArea.textProperty().addListener(textChangeListener);
+            });
+
+            // Update operation log
+            if ("insert".equals(operation)) {
+                if (position <= operationLog.size()) {
+                    operationLog.add(position, entry);
+                } else {
+                    operationLog.add(entry);
+                }
+            } else if ("delete".equals(operation)) {
+                if (position < operationLog.size()) {
+                    operationLog.remove(position);
+                }
             }
-        }
 
-        operationsToBeSent.add(entry);
+            // Add to operations to be sent
+            operationsToBeSent.add(entry);
+        }
     }
 
     private int findDifferencePosition(String oldText, String newText) {
@@ -168,12 +201,11 @@ public class SessionHandler {
                 subscribeAckOperations();
                 sendJoin();
                 
-                ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+                scheduler = Executors.newSingleThreadScheduledExecutor();
                 scheduler.scheduleAtFixedRate(() -> {
                     if(!stompSession.isConnected())
                         return;
                     sendArrayOfOperations();
-
                 }, 0, 100, TimeUnit.MILLISECONDS);
                 
                 subscribeCursor();
@@ -190,43 +222,43 @@ public class SessionHandler {
                     }
                     @SuppressWarnings("unchecked")
                     @Override public void handleFrame(StompHeaders headers, Object payload) {
-                        Map<String,Object> m       = (Map<String,Object>) payload;
-                        String user               = (String) m.get("username");
+                        Map<String,Object> m = (Map<String,Object>) payload;
+                        String user = (String) m.get("username");
                         @SuppressWarnings("unchecked")
                         List<Map<String,Object>> ops = (List<Map<String,Object>>) m.get("operations");
                         if (ops == null || ops.isEmpty()) {
                             return;
                         }
 
-                        Number tsNum              = (Number) m.get("timestamp");
-                        String status             = (String) m.get("status");
-                        Instant ts                = Instant.ofEpochMilli(tsNum.longValue());
-
+                        // Only process operations from other users
                         if (!username.equals(user)) {
                             List<OperationEntry> operationEntries = convertToOperationEntries(ops);
 
                             Platform.runLater(() -> {
-                                // Store caret position before update
+                                // Store caret position
                                 int caretPosition = editorArea.getCaretPosition();
-
-                                // Disable text listener temporarily
+                                
+                                // Disable listener
                                 editorArea.textProperty().removeListener(textChangeListener);
 
-                                // Apply operations to the CRDT
-                                crdt.integrateAll(operationEntries);
+                                try {
+                                    // Integrate each operation individually
+                                    for (OperationEntry op : operationEntries) {
+                                        crdt.integrate(op);
+                                    }
 
-                                // Update editor with new text
-                                String newText = crdt.getSequenceText();
-                                System.out.println(newText);
-                                editorArea.setText(newText);
+                                    // Update UI with merged state
+                                    String newText = crdt.getSequenceText();
+                                    editorArea.setText(newText);
 
-                                // Restore caret position if possible
-                                if (caretPosition <= newText.length()) {
-                                    editorArea.positionCaret(caretPosition);
+                                    // Restore caret if possible
+                                    if (caretPosition <= newText.length()) {
+                                        editorArea.positionCaret(caretPosition);
+                                    }
+                                } finally {
+                                    // Always re-enable listener
+                                    editorArea.textProperty().addListener(textChangeListener);
                                 }
-
-                                // Re-enable text listener
-                                editorArea.textProperty().addListener(textChangeListener);
                             });
                         }
                     }
@@ -318,23 +350,25 @@ public class SessionHandler {
     }
 
     public void sendArrayOfOperations() {
-        if (operationsToBeSent.isEmpty()) {
-            return;
+        synchronized(operationLock) {
+            if (operationsToBeSent.isEmpty()) {
+                return;
+            }
+            long ts = Instant.now().toEpochMilli();
+
+            List<Map<String,Object>> opsPayload = operationsToBeSent.stream()
+                    .map(OperationEntry::toMap)
+                    .collect(Collectors.toList());
+
+            Map<String,Object> payload = Map.of(
+                    "username",   username,
+                    "operations", opsPayload,
+                    "timestamp",  ts
+            );
+            stompSession.send("/app/operation/" + sessionId, payload);
+
+            operationsToBeSent.clear();
         }
-        long ts = Instant.now().toEpochMilli();
-
-        List<Map<String,Object>> opsPayload = operationsToBeSent.stream()
-                .map(OperationEntry::toMap)
-                .collect(Collectors.toList());
-
-        Map<String,Object> payload = Map.of(
-                "username",   username,
-                "operations", opsPayload,
-                "timestamp",  ts
-        );
-        stompSession.send("/app/operation/" + sessionId, payload);
-
-        operationsToBeSent.clear();
     }
 
     public void fetchAndApplyStorage() {
@@ -446,5 +480,25 @@ public class SessionHandler {
 
         // If all else fails, wrap the object in an array
         return new Object[] { idObj };
+    }
+
+    // Add cleanup method
+    public void cleanup() {
+        if (scheduler != null) {
+            scheduler.shutdown();
+            try {
+                if (!scheduler.awaitTermination(800, TimeUnit.MILLISECONDS)) {
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                scheduler.shutdownNow();
+            }
+        }
+        
+        if (stompSession != null && stompSession.isConnected()) {
+            stompSession.disconnect();
+        }
+        
+        editorArea.textProperty().removeListener(textChangeListener);
     }
 }

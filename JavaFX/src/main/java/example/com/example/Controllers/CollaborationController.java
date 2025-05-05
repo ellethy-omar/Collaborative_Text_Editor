@@ -151,9 +151,12 @@ public class CollaborationController {
     }
 
     private void leaveSession() {
+        if (sessionHandler != null) {
+            sessionHandler.cleanup();
+        }
+        
         try {
-            String url = String.format("%s/%s/user/%s",
-                    baseUrl, sessionId, username);
+            String url = String.format("%s/%s/user/%s", baseUrl, sessionId, username);
             rest.delete(url);
         } catch (Exception ex) {
             System.out.println("Could not notify server of leave: " + ex.getMessage());

@@ -10,6 +10,7 @@ import java.util.Map;
 public class TreeCrdt {
     private final TreeNode root;
     private final Map<String, TreeNode> nodes;
+    private final Object lock = new Object();
 
     public TreeCrdt() {
         root = new TreeNode(new Object[]{"root", 0L}, '\0');
@@ -17,117 +18,107 @@ public class TreeCrdt {
         nodes.put(root.getIdString(), root);
     }
 
-    /**
-     * Integrates an OperationEntry into the tree: inserts or tombstones nodes.
-     * Does not modify OperationEntry.
-     */
-    // public void integrate(OperationEntry entry) {
-    //     String idKey = Arrays.toString(entry.getUserID());
-    //     boolean isDelete = "delete".equals(entry.getOperation());
-
-    //     if (nodes.containsKey(idKey)) {
-    //         if (isDelete) {
-    //             nodes.get(idKey).setTombstone(true);
-    //         }
-    //         return;
-    //     }
-    //     if (isDelete) return;
-
-    //     TreeNode node = new TreeNode(entry.getUserID(), entry.getCharacter());
-    //     Object[] pid = entry.getParentID();
-    //     TreeNode parent = pid == null ? root : nodes.getOrDefault(Arrays.toString(pid), root);
-
-    //     List<TreeNode> siblings = parent.getChildren();
-    //     int pos = findInsertPosition(siblings, node);
-    //     siblings.add(pos, node);
-    //     nodes.put(idKey, node);
-    // }
     public void integrate(OperationEntry entry) {
-        String idKey = Arrays.toString(entry.getUserID());
-        boolean isDelete = "delete".equals(entry.getOperation());
+        synchronized(lock) {
+            String idKey = Arrays.toString(entry.getUserID());
+            boolean isDelete = "delete".equals(entry.getOperation());
 
-        // If we've seen this operation before
-        if (nodes.containsKey(idKey)) {
-            if (isDelete) {
-                nodes.get(idKey).setTombstone(true);
+            // If we've seen this operation before
+            if (nodes.containsKey(idKey)) {
+                if (isDelete) {
+                    nodes.get(idKey).setTombstone(true);
+                }
+                return;
             }
-            return;
-        }
-        // If delete refers to unknown, ignore
-        if (isDelete) return;
+            
+            // If delete refers to unknown node, ignore
+            if (isDelete) return;
 
-        // Create new node for insert
-        TreeNode node = new TreeNode(entry.getUserID(), entry.getCharacter());
+            // Create new node for insert
+            TreeNode node = new TreeNode(entry.getUserID(), entry.getCharacter());
 
-        // Determine initial parent
-        Object[] pid = entry.getParentID();
-        TreeNode parent = (pid == null)
-            ? root
-            : nodes.getOrDefault(Arrays.toString(pid), root);
+            // Find parent node
+            Object[] pid = entry.getParentID();
+            TreeNode parent = pid == null ? root : nodes.getOrDefault(Arrays.toString(pid), root);
 
-        // Re-parent under latest tombstoned child of the initial parent, if any
-        long ts = node.getTimestamp();
-        TreeNode tombFallback = null;
-        for (TreeNode child : parent.getChildren()) {
-            if (child.isTombstone() && child.getTimestamp() < ts) {
-                if (tombFallback == null || child.getTimestamp() > tombFallback.getTimestamp()) {
-                    tombFallback = child;
+            // Insert in correct position based on both timestamp and userID
+            List<TreeNode> siblings = parent.getChildren();
+            long timestamp = node.getTimestamp();
+            String username = node.getUserID()[0].toString();
+            
+            int pos = 0;
+            for (; pos < siblings.size(); pos++) {
+                TreeNode sibling = siblings.get(pos);
+                long siblingTs = sibling.getTimestamp();
+                String siblingUser = sibling.getUserID()[0].toString();
+                
+                if (timestamp < siblingTs || 
+                    (timestamp == siblingTs && username.compareTo(siblingUser) < 0)) {
+                    break;
                 }
             }
+            
+            siblings.add(pos, node);
+            nodes.put(idKey, node);
         }
-        if (tombFallback != null) {
-            parent = tombFallback;
-        }
-
-        // Insert among siblings by descending timestamp (newest first)
-        List<TreeNode> siblings = parent.getChildren();
-        int pos = 0;
-        for (; pos < siblings.size(); pos++) {
-            if (ts > siblings.get(pos).getTimestamp()) break;
-        }
-        siblings.add(pos, node);
-        nodes.put(idKey, node);
     }
-
 
     public void integrateAll(List<OperationEntry> entries) {
-        for (OperationEntry entry : entries) {
-            integrate(entry);
-        }
-    }
-
-
-    /**
-     * Inserts siblings in descending timestamp order (newest first).
-     */
-    private int findInsertPosition(List<TreeNode> siblings, TreeNode node) {
-        long nodeTs = node.getTimestamp();
-        for (int i = 0; i < siblings.size(); i++) {
-            long sibTs = siblings.get(i).getTimestamp();
-            if (nodeTs > sibTs) {
-                return i;
+        synchronized(lock) {
+            // Sort entries by timestamp and then by userID
+            entries.sort((a, b) -> {
+                long tsA = Long.parseLong(a.getUserID()[1].toString());
+                long tsB = Long.parseLong(b.getUserID()[1].toString());
+                int timeCompare = Long.compare(tsA, tsB);
+                if (timeCompare != 0) return timeCompare;
+                
+                // If timestamps are equal, sort by userID
+                String userA = a.getUserID()[0].toString();
+                String userB = b.getUserID()[0].toString();
+                return userA.compareTo(userB);
+            });
+            
+            for (OperationEntry entry : entries) {
+                integrate(entry);
             }
         }
-        return siblings.size();
     }
 
-    /**
-     * Renders the current document by pre-order traversal, skipping tombstones.
-     */
     public String getSequenceText() {
-        StringBuilder sb = new StringBuilder();
-        traverse(root, sb);
-        return sb.toString();
-    }
-
-    private void traverse(TreeNode node, StringBuilder sb) {
-        for (TreeNode child : node.getChildren()) {
-            if (!child.isTombstone()) sb.append(child.getValue());
-            traverse(child, sb);
+        synchronized(lock) {
+            StringBuilder sb = new StringBuilder();
+            List<TreeNode> flattenedNodes = new ArrayList<>();
+            flattenTree(root, flattenedNodes);
+            
+            // Sort flattened nodes by timestamp and userID
+            flattenedNodes.sort((a, b) -> {
+                long tsA = a.getTimestamp();
+                long tsB = b.getTimestamp();
+                int timeCompare = Long.compare(tsA, tsB);
+                if (timeCompare != 0) return timeCompare;
+                
+                String userA = a.getUserID()[0].toString();
+                String userB = b.getUserID()[0].toString();
+                return userA.compareTo(userB);
+            });
+            
+            // Build final text
+            for (TreeNode node : flattenedNodes) {
+                if (!node.isTombstone() && node != root) {
+                    sb.append(node.getValue());
+                }
+            }
+            return sb.toString();
         }
     }
 
-
+    private void flattenTree(TreeNode node, List<TreeNode> result) {
+        if (node == null) return;
+        result.add(node);
+        for (TreeNode child : node.getChildren()) {
+            flattenTree(child, result);
+        }
+    }
 
     public List<OperationEntry> exportVisibleOperations() {
         List<OperationEntry> ops = new ArrayList<>();
@@ -170,9 +161,6 @@ public class TreeCrdt {
             printAsciiRecursive(children.get(i), childPrefix, lastChild);
         }
     }
-
-
-
 
 }
 

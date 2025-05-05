@@ -10,7 +10,7 @@ module example.com.example {
     requires net.synedra.validatorfx;
     requires org.kordamp.ikonli.javafx;
     requires org.kordamp.bootstrapfx.core;
-    requires eu.hansolo.tilesfx;
+    // requires eu.hansolo.tilesfx;
     requires com.almasb.fxgl.all;
 
     // Spring for WebSocket
@@ -19,9 +19,6 @@ module example.com.example {
     requires spring.core;
     requires java.net.http;
     requires spring.web;
-    requires spring.context;
-    requires java.annotation;
-    requires jdk.jdi;
 
     opens example.com.example to javafx.fxml;
 
