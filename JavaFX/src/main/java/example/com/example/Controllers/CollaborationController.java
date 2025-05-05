@@ -69,7 +69,6 @@ public class CollaborationController {
         this.viewerCode = viewerCode;
         this.username = username;
 
-        editorArea.setText(initialText);
         editorArea.setEditable(isEditor);
         currentSessionLabel.setText(isEditor ? "Editing Session" : "Viewing Session");
 
@@ -87,6 +86,8 @@ public class CollaborationController {
                 sessionId,
                 username
         );
+        editorArea.setText(initialText);
+
         sessionHandler.connectAndSubscribe();
     }
 
