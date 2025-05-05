@@ -42,8 +42,18 @@ public class SessionHandler {
     private StompSession stompSession;
     private List<OperationEntry> operationLog = new ArrayList<>();
     private final List<OperationEntry> operationsToBeSent = new ArrayList<>();
-    private ChangeListener<String> textChangeListener;
+    private final ChangeListener<String> textChangeListener;
     private TreeCrdt crdt = new TreeCrdt();
+    private final Deque<String>    undoOps   = new ArrayDeque<>();
+    private final Deque<Character> undoChars = new ArrayDeque<>();
+    private final Deque<Integer>   undoPos   = new ArrayDeque<>();
+
+    private final Deque<String>    redoOps   = new ArrayDeque<>();
+    private final Deque<Character> redoChars = new ArrayDeque<>();
+    private final Deque<Integer>   redoPos   = new ArrayDeque<>();
+
+    // flag to distinguish real user input vs. our undo/redo edits
+    private boolean programmaticChange = false;
 
     public SessionHandler(TextArea editorArea,
                           ListView<String> usersList,
@@ -57,7 +67,7 @@ public class SessionHandler {
         String[] previousText = {editorArea.getText()};
         this.cursorHandler = new CursorHandler(editorArea, cursorOverlay);
 
-        textChangeListener = (observable, oldValue, newValue) -> {
+       textChangeListener = (observable, oldValue, newValue) -> {
             long timestamp = Instant.now().toEpochMilli();
 
             if (newValue.length() > oldValue.length()) {
@@ -90,7 +100,58 @@ public class SessionHandler {
         });
     }
 
+    public void undo() {
+        if (undoOps.isEmpty()) return;
+
+        // pop the last user op
+        String lastOp = undoOps.pop();
+        char   c      = undoChars.pop();
+        int    pos    = undoPos.pop();
+
+        // flip insert↔delete
+        String inverse = lastOp.equals("insert") ? "delete" : "insert";
+
+        // mark for the listener
+        programmaticChange = true;
+        if (inverse.equals("insert")) {
+            editorArea.insertText(pos, String.valueOf(c));
+        } else {
+            editorArea.deleteText(pos, pos + 1);
+        }
+        programmaticChange = false;
+    }
+
+    public void redo() {
+        if (redoOps.isEmpty()) return;
+
+        String op = redoOps.pop();
+        char   c  = redoChars.pop();
+        int    pos= redoPos.pop();
+
+        programmaticChange = true;
+        if (op.equals("insert")) {
+            editorArea.insertText(pos, String.valueOf(c));
+        } else {
+            editorArea.deleteText(pos, pos + 1);
+        }
+        programmaticChange = false;
+    }
+
     private void handleTextOperation(String operation, char character, int position, long timestamp) {
+        if (!programmaticChange) {
+            // real typing → you can undo this
+            undoOps.push(operation);
+            undoChars.push(character);
+            undoPos.push(position);
+            // fresh user op invalidates any redo history
+            redoOps.clear(); redoChars.clear(); redoPos.clear();
+        } else {
+            // this came from our undo() call → make it redo-able
+            redoOps.push(operation);
+            redoChars.push(character);
+            redoPos.push(position);
+        }
+
         OperationEntry entry = new OperationEntry(
             operation,
             character,

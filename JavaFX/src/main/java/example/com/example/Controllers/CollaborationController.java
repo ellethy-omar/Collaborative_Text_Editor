@@ -36,10 +36,6 @@ public class CollaborationController {
     private DocumentHandler documentHandler;
     private SessionHandler sessionHandler;
 
-    private final Deque<String> undoStack = new ArrayDeque<>();
-    private final Deque<String> redoStack = new ArrayDeque<>();
-    private boolean isUndoOrRedo = false;
-
     private String username;
     private String sessionId;
     private String viewerCode;
@@ -98,8 +94,6 @@ public class CollaborationController {
     private void handleNewDocument() {
         documentHandler.setCurrentFileName(null);
         editorArea.clear();
-        undoStack.clear();
-        redoStack.clear();
     }
 
     @FXML
@@ -113,26 +107,12 @@ public class CollaborationController {
     }
 
     @FXML private void handleUndo() {
-        if (!undoStack.isEmpty()) {
-            isUndoOrRedo = true;
-            // cap redo stack
-            if (redoStack.size() >= 3) {
-                redoStack.removeLast();
-            }
-            redoStack.push(editorArea.getText());
-            editorArea.setText(undoStack.pop());
-            isUndoOrRedo = false;
-        }
+        sessionHandler.undo();
     }
 
     @FXML
     private void handleRedo() {
-        if (!redoStack.isEmpty()) {
-            isUndoOrRedo = true;
-            undoStack.push(editorArea.getText());
-            editorArea.setText(redoStack.pop());
-            isUndoOrRedo = false;
-        }
+        sessionHandler.redo();
     }
 
     private void showAlert(String msg) {
