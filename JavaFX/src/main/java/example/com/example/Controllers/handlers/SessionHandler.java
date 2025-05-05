@@ -67,26 +67,33 @@ public class SessionHandler {
         String[] previousText = {editorArea.getText()};
         this.cursorHandler = new CursorHandler(editorArea, cursorOverlay);
 
-       textChangeListener = (observable, oldValue, newValue) -> {
-            long timestamp = Instant.now().toEpochMilli();
+        textChangeListener = (observable, oldValue, newValue) -> {
+
+            long baseTimestamp = Instant.now().toEpochMilli();
 
             if (newValue.length() > oldValue.length()) {
                 int length = newValue.length() - oldValue.length();
                 int start = findDifferencePosition(oldValue, newValue);
                 String insertedText = newValue.substring(start, start + length);
+
+                // Use incrementing timestamps for each character
                 for (int i = 0; i < length; i++) {
                     char c = insertedText.charAt(i);
                     if (c == '\r' || c == '\n') c = '\n';
-                    handleTextOperation("insert", c, start + i, timestamp);
+                    // Add i milliseconds to the base timestamp
+                    handleTextOperation("insert", c, start + i, baseTimestamp + i);
                 }
             } else if (newValue.length() < oldValue.length()) {
                 int length = oldValue.length() - newValue.length();
                 int start = findDifferencePosition(newValue, oldValue);
                 String deletedText = oldValue.substring(start, start + length);
+
+                // Use incrementing timestamps for deletes too
                 for (int i = length - 1; i >= 0; i--) {
                     char c = deletedText.charAt(i);
                     if (c == '\r' || c == '\n') c = '\n';
-                    handleTextOperation("delete", c, start + i, timestamp);
+                    // Add index milliseconds to base timestamp
+                    handleTextOperation("delete", c, start + i, baseTimestamp + (length - 1 - i));
                 }
             }
         };
