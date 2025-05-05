@@ -124,6 +124,7 @@ public class CollaborationController {
     private void handleExit() {
         leaveSession();
         Platform.exit();
+        System.exit(0);
     }
 
     @Override

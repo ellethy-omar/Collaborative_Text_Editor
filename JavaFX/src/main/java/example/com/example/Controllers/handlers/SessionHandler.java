@@ -8,7 +8,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import com.sun.jdi.PrimitiveValue;
+import static example.com.example.Controllers.utils.StorageConverter.*;
 import example.com.example.Controllers.CRDT.OperationEntry;
 import example.com.example.Controllers.CRDT.TreeCrdt;
 import javafx.beans.value.ChangeListener;
@@ -190,42 +190,25 @@ public class SessionHandler {
         }
 
         operationsToBeSent.add(entry);
-
-//        crdt.printTree();
-//
-//        System.out.println("Operation Log (" + operation + " at " + position + "):");
-//        for (int i = 0; i < operationLog.size(); i++) {
-//            System.out.println("[" + i + "]: " + operationLog.get(i));
-//        }
-//
-//        System.out.println("OperationsToBeSent (" + operationsToBeSent.size() + " entries):");
-//        for (int i = 0; i < operationsToBeSent.size(); i++) {
-//            System.out.println("[" + i + "]: " + operationsToBeSent.get(i));
-//        }
-
     }
 
     private int findDifferencePosition(String oldText, String newText) {
         int oldLen = oldText.length();
         int newLen = newText.length();
         
-        // Check for prepend (new text ends with old text) FIRST
         if (newLen > oldLen && (oldText.isEmpty() ? newLen == 1 : newText.endsWith(oldText))) {
             return 0;
         }
-        // Check for append (new text starts with old text)
         if (newLen > oldLen && newText.startsWith(oldText)) {
             return oldLen;
         }
-        // Check for deletion from start (old text ends with new text)
         if (newLen < oldLen && oldText.endsWith(newText)) {
             return 0;
         }
-        // Check for deletion from end (old text starts with new text)
         if (newLen < oldLen && oldText.startsWith(newText)) {
             return newLen;
         }
-        // Find first differing character
+
         int minLength = Math.min(oldLen, newLen);
         for (int i = 0; i < minLength; i++) {
             if (oldText.charAt(i) != newText.charAt(i)) {
@@ -286,86 +269,25 @@ public class SessionHandler {
                             List<OperationEntry> operationEntries = convertToOperationEntries(ops);
 
                         Platform.runLater(() -> {
-                            // Capture current state before update
                             int oldCaret = editorArea.getCaretPosition();
                             String oldText = editorArea.getText();
 
-                            // Disable listener to prevent feedback loop
                             editorArea.textProperty().removeListener(textChangeListener);
 
-                            // Apply CRDT operations
                             crdt.integrateAll(operationEntries);
                             String newText = crdt.getSequenceText();
                             operationLog = crdt.exportVisibleOperations();
 
-                            // Calculate new caret position
                             int newCaret = calculateNewCaretPosition(oldText, newText, oldCaret);
 
-                            // Update UI components
                             editorArea.setText(newText);
                             editorArea.positionCaret(Math.min(newCaret, newText.length()));
 
-                            // Re-enable listener
                             editorArea.textProperty().addListener(textChangeListener);
                         });
                     }
                 }
         );
-    }
-
-    private int calculateNewCaretPosition(String oldText, String newText, int oldCaret) {
-        int diffIndex = 0;
-        int oldLen = oldText.length();
-        int newLen = newText.length();
-
-        // Find first divergence point
-        while (diffIndex < oldLen && diffIndex < newLen
-                && oldText.charAt(diffIndex) == newText.charAt(diffIndex)) {
-            diffIndex++;
-        }
-
-        if (oldLen < newLen) {
-            // Handle insertions
-            int insertLength = newLen - oldLen;
-            if (oldCaret >= diffIndex) {
-                return oldCaret + insertLength;
-            }
-        } else if (oldLen > newLen) {
-            // Handle deletions
-            int deleteLength = oldLen - newLen;
-            if (oldCaret >= diffIndex + deleteLength) {
-                return oldCaret - deleteLength;
-            } else if (oldCaret > diffIndex) {
-                return diffIndex;
-            }
-        }
-
-        // Default case for no changes or prepend operations
-        return Math.min(oldCaret, newLen);
-    }
-
-
-    @SuppressWarnings("unchecked")
-    private List<OperationEntry> convertToOperationEntries(List<Map<String, Object>> maps) {
-        List<OperationEntry> entries = new ArrayList<>();
-
-        for (Map<String, Object> map : maps) {
-            // Extract operation properties
-            String operation = (String) map.get("operation");
-            String charStr = (String) map.get("character");
-            char character = (charStr != null && !charStr.isEmpty()) ? charStr.charAt(0) : '\0';
-
-            // Extract and convert IDs
-            Object[] userID = extractIdArray(map.get("userID"));
-            Object[] parentID = extractIdArray(map.get("parentID"));
-
-            // Create and configure the operation entry
-            OperationEntry entry = new OperationEntry(operation, character, userID);
-            entry.setParentID(parentID);
-            entries.add(entry);
-        }
-
-        return entries;
     }
 
     private void subscribeUsers() {
@@ -478,17 +400,13 @@ public class SessionHandler {
                     // Update the editor text
                     Platform.runLater(() -> {
                         editorArea.setText(crdt.getSequenceText());
-//                        System.out.println("Updated text: " + editorArea.getText());
-//                        crdt.printAsciiTree();
                         operationLog = crdt.exportVisibleOperations();
-                        // Re-enable text listener
                         editorArea.textProperty().addListener(textChangeListener);
                     });
                 } catch (Exception e) {
                     System.err.println("Error processing storage data: " + e.getMessage());
                     e.printStackTrace();
 
-                    // Make sure we re-enable the listener even if there's an error
                     editorArea.textProperty().addListener(textChangeListener);
                 }
             } else {
@@ -497,69 +415,5 @@ public class SessionHandler {
         } else {
             System.err.println("Failed to fetch storage data: " + response.getStatusCode());
         }
-    }
-
-    /**
-     * Converts the storage object from the API response to a list of OperationEntry objects.
-     * The structure of storageObj is expected to be a Queue<Map<String, Object>>.
-     */
-    @SuppressWarnings("unchecked")
-    private List<OperationEntry> convertStorageToOperationEntries(Object storageObj) {
-        List<OperationEntry> operations = new ArrayList<>();
-
-        // The storage is expected to be a queue (which Jackson deserializes as a List)
-        if (storageObj instanceof List) {
-            List<Object> storageList = (List<Object>) storageObj;
-
-            for (Object item : storageList) {
-                if (item instanceof Map) {
-                    Map<String, Object> opMap = (Map<String, Object>) item;
-
-                    // Extract operation properties
-                    String operation = (String) opMap.get("operation");
-                    String charStr = (String) opMap.get("character");
-                    char character = (charStr != null && !charStr.isEmpty()) ? charStr.charAt(0) : '\0';
-
-                    // Handle userID (could be a List or an array)
-                    Object[] userID = extractIdArray(opMap.get("userID"));
-                    Object[] parentID = extractIdArray(opMap.get("parentID"));
-
-                    // Create and configure the operation entry
-                    OperationEntry entry = new OperationEntry(operation, character, userID);
-                    entry.setParentID(parentID);
-                    operations.add(entry);
-                }
-            }
-        }
-
-        return operations;
-    }
-
-    /**
-     * Extracts an Object[] from various possible representations of an ID.
-     */
-    @SuppressWarnings("unchecked")
-    private Object[] extractIdArray(Object idObj) {
-        if (idObj == null) {
-            return null;
-        }
-
-        if (idObj instanceof Object[]) {
-            return (Object[]) idObj;
-        } else if (idObj instanceof List) {
-            List<Object> list = (List<Object>) idObj;
-            return list.toArray(new Object[0]);
-        } else if (idObj instanceof Map) {
-            // Handle case where Jackson deserializes arrays as maps with numeric keys
-            Map<String, Object> map = (Map<String, Object>) idObj;
-            Object[] result = new Object[map.size()];
-            for (int i = 0; i < map.size(); i++) {
-                result[i] = map.get(String.valueOf(i));
-            }
-            return result;
-        }
-
-        // If all else fails, wrap the object in an array
-        return new Object[] { idObj };
     }
 }
