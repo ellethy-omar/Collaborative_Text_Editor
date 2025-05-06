@@ -100,8 +100,10 @@ public class PrimaryController {
             return;
         }
 
+        Map<String,String> createBody = Map.of("text", sb.toString());
+
         try {
-            Map<String,String> resp = rest.postForObject(baseUrl, Map.of(), Map.class);
+            Map<String,String> resp = rest.postForObject(baseUrl, createBody, Map.class);
             String editorCode = resp.get("sessionId");
             String viewerCode = resp.get("viewerCode");
 

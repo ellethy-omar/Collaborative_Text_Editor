@@ -7,6 +7,7 @@ import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 
 
 @SpringBootApplication
@@ -32,6 +33,14 @@ class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.enableSimpleBroker("/topic");
         // Set the prefix for application destinations
         registry.setApplicationDestinationPrefixes("/app");
+    }
+
+    @Override
+    public void configureWebSocketTransport(WebSocketTransportRegistration registration) {
+        // Increase message size limits (values in bytes)
+        registration.setMessageSizeLimit(2 * 1024 * 1024); // 2MB
+        registration.setSendBufferSizeLimit(4 * 1024 * 1024); // 4MB
+        registration.setSendTimeLimit(20 * 1000); // 20 seconds
     }
 }
 

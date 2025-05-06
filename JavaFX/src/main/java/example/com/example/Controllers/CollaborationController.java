@@ -86,7 +86,6 @@ public class CollaborationController {
                 sessionId,
                 username
         );
-        editorArea.setText(initialText);
 
         sessionHandler.connectAndSubscribe();
     }

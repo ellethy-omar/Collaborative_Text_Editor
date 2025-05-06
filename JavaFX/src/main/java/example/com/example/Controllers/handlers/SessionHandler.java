@@ -371,8 +371,6 @@ public class SessionHandler {
     }
 
     public void fetchAndApplyStorage() {
-        if (!editorArea.getText().isEmpty())
-            return;
 
         RestTemplate rest = new RestTemplate();
 

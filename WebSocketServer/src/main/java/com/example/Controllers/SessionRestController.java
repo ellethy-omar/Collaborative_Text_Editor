@@ -2,6 +2,7 @@ package com.example.Controllers;
 
 import com.example.Services.SessionService;
 import com.example.Services.SessionTokens;
+import example.com.example.Controllers.CRDT.OperationEntry;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,6 +20,41 @@ public class SessionRestController {
     public ResponseEntity<Map<String,String>> create(@RequestBody(required=false) Map<String,String> body) {
         String initial = body != null ? body.getOrDefault("text", "") : "";
         SessionTokens tokens = sessions.createSession(initial);
+        String editor = tokens.editorToken();
+
+        if (initial.isEmpty()) {
+            System.out.println("initial is empty");
+            return ResponseEntity.ok(Map.of(
+                    "sessionId", tokens.editorToken(),
+                    "viewerCode", tokens.viewerToken()
+            ));
+        }
+
+        System.out.println(initial);
+
+        Queue<Map<String,Object>> storage = sessions.getByToken(editor).getStorage();
+
+        Object[] prevUserID = null;
+        long ts = System.currentTimeMillis();
+
+        for (int i = 0; i < initial.toCharArray().length; i ++) {
+            ts++;
+
+            Object[] userID = new Object[]{ "user1", ts };
+
+            OperationEntry entry = new OperationEntry("insert", initial.toCharArray()[i], userID);
+
+            entry.setParentID(prevUserID);
+
+            storage.add(entry.toMap());
+
+            prevUserID = userID;
+
+            System.out.println(entry);
+        }
+
+        System.out.println(sessions.getByToken(editor).getStorage());
+
         return ResponseEntity.ok(Map.of(
                 "sessionId", tokens.editorToken(),
                 "viewerCode", tokens.viewerToken()
